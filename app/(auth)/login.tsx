@@ -9,8 +9,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '../../lib/supabase';
@@ -21,10 +21,17 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [errorModal, setErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const showError = (message: string) => {
+    setErrorMessage(message);
+    setErrorModal(true);
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      showError('Please fill in all fields');
       return;
     }
 
@@ -42,14 +49,14 @@ export default function LoginScreen() {
         router.replace('/(tabs)/feed');
       }
     } catch (error) {
-  if (error instanceof Error) {
-    Alert.alert('Login Failed', error.message);
-  } else {
-    Alert.alert('Login Failed', 'An unknown error occurred.');
-  }
-} finally {
-  setLoading(false);
-}
+      if (error instanceof Error) {
+        showError(error.message);
+      } else {
+        showError('An unknown error occurred.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -69,17 +76,16 @@ export default function LoginScreen() {
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
 
+        {/* Header with Billabong Font */}
         <View style={styles.header}>
-          <Text style={styles.logo}>FRAMEZ</Text>
+          <Text style={styles.logo}>Framez</Text>
           <View style={styles.logoUnderline} />
           <Text style={styles.subtitle}>Welcome Back</Text>
         </View>
 
         <View style={styles.formContainer}>
           <View style={styles.inputContainer}>
-            <View style={styles.inputIconContainer}>
-              <Ionicons name="mail-outline" size={20} color="#8B9DC3" />
-            </View>
+            <Ionicons name="mail-outline" size={20} color="#8B9DC3" />
             <TextInput
               style={styles.input}
               placeholder="Email"
@@ -93,9 +99,7 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.inputContainer}>
-            <View style={styles.inputIconContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#8B9DC3" />
-            </View>
+            <Ionicons name="lock-closed-outline" size={20} color="#8B9DC3" />
             <TextInput
               style={styles.input}
               placeholder="Password"
@@ -148,136 +152,63 @@ export default function LoginScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Error Modal */}
+      <Modal visible={errorModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.errorCard}>
+            <View style={styles.errorIconContainer}>
+              <Ionicons name="alert-circle" size={64} color="#EF4444" />
+            </View>
+            <Text style={styles.errorTitle}>Login Failed</Text>
+            <Text style={styles.errorMessage}>{errorMessage}</Text>
+            <TouchableOpacity
+              style={styles.errorButton}
+              onPress={() => setErrorModal(false)}
+            >
+              <Text style={styles.errorButtonText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 60,
-    paddingBottom: 40,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 48,
-  },
-  logo: {
-    fontSize: 48,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 6,
-    marginBottom: 8,
-  },
-  logoUnderline: {
-    width: 60,
-    height: 3,
-    backgroundColor: '#FFFFFF',
-    marginBottom: 16,
-    borderRadius: 2,
-  },
-  subtitle: {
-    fontSize: 18,
-    color: 'rgba(255, 255, 255, 0.7)',
-    letterSpacing: 1,
+  container: { flex: 1, backgroundColor: '#000000' },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 60, paddingBottom: 40 },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255, 255, 255, 0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 32 },
+  header: { alignItems: 'center', marginBottom: 48 },
+  logo: { 
+    fontSize: 56, 
     fontWeight: '400',
+    color: '#FFFFFF', 
+    letterSpacing: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Snell Roundhand' : 'cursive',
+    marginBottom: 8 
   },
-  formContainer: {
-    gap: 20,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  inputIconContainer: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '400',
-  },
-  eyeIcon: {
-    padding: 8,
-  },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginTop: -8,
-  },
-  forgotPasswordText: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  loginButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    height: 56,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 12,
-    shadowColor: '#FFFFFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  loginButtonText: {
-    color: '#000000',
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 12,
-  },
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  dividerText: {
-    color: 'rgba(255, 255, 255, 0.4)',
-    marginHorizontal: 16,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  signupContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  signupText: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 15,
-  },
-  signupLink: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  logoUnderline: { width: 80, height: 2, backgroundColor: '#FFFFFF', marginBottom: 16, borderRadius: 2 },
+  subtitle: { fontSize: 18, color: 'rgba(255, 255, 255, 0.7)', letterSpacing: 1, fontWeight: '400' },
+  formContainer: { gap: 20 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 16, height: 56 },
+  input: { flex: 1, color: '#FFFFFF', fontSize: 16, fontWeight: '400', marginLeft: 12 },
+  eyeIcon: { padding: 8 },
+  forgotPassword: { alignSelf: 'flex-end', marginTop: -8 },
+  forgotPasswordText: { color: 'rgba(255, 255, 255, 0.6)', fontSize: 14, fontWeight: '500' },
+  loginButton: { backgroundColor: '#FFFFFF', borderRadius: 16, height: 56, justifyContent: 'center', alignItems: 'center', marginTop: 12 },
+  loginButtonText: { color: '#000000', fontSize: 18, fontWeight: '700', letterSpacing: 1 },
+  dividerContainer: { flexDirection: 'row', alignItems: 'center', marginVertical: 12 },
+  divider: { flex: 1, height: 1, backgroundColor: 'rgba(255, 255, 255, 0.1)' },
+  dividerText: { color: 'rgba(255, 255, 255, 0.4)', marginHorizontal: 16, fontSize: 12, fontWeight: '600' },
+  signupContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 8 },
+  signupText: { color: 'rgba(255, 255, 255, 0.6)', fontSize: 15 },
+  signupLink: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  errorCard: { backgroundColor: '#1a1a1a', borderRadius: 24, padding: 32, alignItems: 'center', width: '100%', maxWidth: 320, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  errorIconContainer: { marginBottom: 20 },
+  errorTitle: { fontSize: 24, fontWeight: '700', color: '#FFFFFF', marginBottom: 12 },
+  errorMessage: { fontSize: 15, color: 'rgba(255,255,255,0.7)', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  errorButton: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12, width: '100%' },
+  errorButtonText: { color: '#000000', fontSize: 16, fontWeight: '700', textAlign: 'center' },
 });

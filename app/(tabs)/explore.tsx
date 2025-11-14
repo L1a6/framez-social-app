@@ -10,19 +10,19 @@ import {
   StyleSheet,
   Dimensions,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import type { Post, Profile } from '../../types/database';
 
 const { width } = Dimensions.get('window');
 const ITEM_SIZE = (width - 4) / 3;
 
 export default function ExploreScreen() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [users, setUsers] = useState<Profile[]>([]);
+  const [posts, setPosts] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'posts' | 'users'>('posts');
 
@@ -35,6 +35,7 @@ export default function ExploreScreen() {
       searchContent();
     } else {
       fetchExplorePosts();
+      setUsers([]);
     }
   }, [searchQuery]);
 
@@ -76,15 +77,19 @@ export default function ExploreScreen() {
     }
   };
 
-  const renderPost = ({ item }: { item: Post }) => (
+  const handleProfileClick = (userId: string) => {
+    router.push(`/(tabs)/user-profile?userId=${userId}`);
+  };
+
+  const renderPost = ({ item }: { item: any }) => (
     <TouchableOpacity
       onPress={() => router.push(`/post/${item.id}`)}
       style={styles.gridItem}
     >
-<Image
-  source={{ uri: item.image_url ?? 'https://via.placeholder.com/150' }}
-  style={styles.gridImage}
-/>
+      <Image
+        source={{ uri: item.image_url || 'https://via.placeholder.com/150' }}
+        style={styles.gridImage}
+      />
       <View style={styles.gridOverlay}>
         <View style={styles.gridStat}>
           <Ionicons name="heart" size={20} color="#FFFFFF" />
@@ -94,20 +99,20 @@ export default function ExploreScreen() {
     </TouchableOpacity>
   );
 
-  const renderUser = ({ item }: { item: Profile }) => (
+  const renderUser = ({ item }: { item: any }) => (
     <TouchableOpacity
-      onPress={() => router.push(`/user/${item.id}`)}
+      onPress={() => handleProfileClick(item.id)}
       style={styles.userItem}
     >
       <Image
         source={{
-          uri: item.avatar_url || `https://ui-avatars.com/api/?name=${item.username}`,
+          uri: item.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.full_name || item.username)}&background=6366f1&color=fff`,
         }}
         style={styles.userAvatar}
       />
       <View style={styles.userInfo}>
-        <Text style={styles.userUsername}>{item.username}</Text>
         <Text style={styles.userFullName}>{item.full_name}</Text>
+        <Text style={styles.userUsername}>@{item.username}</Text>
       </View>
       <Ionicons name="chevron-forward" size={20} color="rgba(255, 255, 255, 0.4)" />
     </TouchableOpacity>
@@ -132,7 +137,7 @@ export default function ExploreScreen() {
           <Ionicons name="search" size={20} color="rgba(255, 255, 255, 0.4)" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search"
+            placeholder="Search posts and people..."
             placeholderTextColor="rgba(255, 255, 255, 0.4)"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -162,7 +167,7 @@ export default function ExploreScreen() {
                 activeTab === 'posts' && styles.tabTextActive,
               ]}
             >
-              Posts
+              Posts ({posts.length})
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -178,7 +183,7 @@ export default function ExploreScreen() {
                 activeTab === 'users' && styles.tabTextActive,
               ]}
             >
-              People
+              People ({users.length})
             </Text>
           </TouchableOpacity>
         </View>
@@ -186,6 +191,7 @@ export default function ExploreScreen() {
 
       {activeTab === 'posts' ? (
         <FlatList
+          key="posts-grid"
           data={posts}
           renderItem={renderPost}
           keyExtractor={(item) => item.id}
@@ -193,14 +199,37 @@ export default function ExploreScreen() {
           columnWrapperStyle={styles.gridRow}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.gridContent}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons name="search" size={64} color="#666" />
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'No posts found' : 'No posts yet'}
+              </Text>
+              {searchQuery && (
+                <Text style={styles.emptySubtext}>
+                  Try searching for something else
+                </Text>
+              )}
+            </View>
+          }
         />
       ) : (
         <FlatList
+          key="users-list"
           data={users}
           renderItem={renderUser}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.usersContent}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons name="people" size={64} color="#666" />
+              <Text style={styles.emptyText}>No people found</Text>
+              <Text style={styles.emptySubtext}>
+                Try searching for a different name
+              </Text>
+            </View>
+          }
         />
       )}
     </View>
@@ -226,9 +255,11 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
+    fontFamily: Platform.OS === 'ios' ? 'Snell Roundhand' : 'cursive',
+    letterSpacing: 2,
   },
   searchContainer: {
     paddingHorizontal: 16,
@@ -272,6 +303,7 @@ const styles = StyleSheet.create({
   },
   gridContent: {
     paddingTop: 2,
+    flexGrow: 1,
   },
   gridRow: {
     gap: 2,
@@ -305,6 +337,7 @@ const styles = StyleSheet.create({
   },
   usersContent: {
     paddingVertical: 8,
+    flexGrow: 1,
   },
   userItem: {
     flexDirection: 'row',
@@ -312,6 +345,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   userAvatar: {
     width: 48,
@@ -323,13 +358,32 @@ const styles = StyleSheet.create({
   userInfo: {
     flex: 1,
   },
-  userUsername: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
   userFullName: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  userUsername: {
     color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 13,
+    fontSize: 14,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+  },
+  emptyText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 15,
+    textAlign: 'center',
   },
 });

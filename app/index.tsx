@@ -1,5 +1,4 @@
-// app/index.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,221 +6,259 @@ import {
   Image,
   Dimensions,
   StyleSheet,
-} from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
-import Animated, {
-  useAnimatedStyle,
-  withTiming,
-  withDelay,
-  Easing,
-  useSharedValue,
-} from "react-native-reanimated";
+  StatusBar,
+  Animated,
+  Platform,
+} from 'react-native';
+import { router } from 'expo-router';
 
-const { width, height } = Dimensions.get("window");
+const { width, height } = Dimensions.get('window');
 
 const slides = [
-  {
-    image: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&q=80",
-    caption: "Capture Moments",
-  },
-  {
-    image: "https://images.unsplash.com/photo-1516738901171-8eb4fc13bd20?w=800&q=80",
-    caption: "Share Stories",
-  },
-  {
-    image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&q=80",
-    caption: "Connect Lives",
-  },
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&q=80',
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=800&q=80',
+  'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=800&q=80',
+  'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=800&q=80',
+];
+
+const subtitles = [
+  'Capture life in frames',
+  'Share your moments',
+  'Tell your story',
+  'Vibes, stories, memories',
 ];
 
 export default function WelcomeScreen() {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [currentSubtitleIndex, setCurrentSubtitleIndex] = useState(0);
+  const fadeAnim = new Animated.Value(0);
+  const logoScale = new Animated.Value(0.9);
 
-  const opacity = useSharedValue(0);
-  const scale = useSharedValue(0.95);
-  const translateY = useSharedValue(30);
-
+  // Slide rotation
   useEffect(() => {
-    opacity.value = withDelay(300, withTiming(1, { duration: 1000 }));
-    scale.value = withDelay(
-      300,
-      withTiming(1, { duration: 1000, easing: Easing.out(Easing.cubic) })
-    );
-    translateY.value = withDelay(
-      300,
-      withTiming(0, { duration: 1000, easing: Easing.out(Easing.cubic) })
-    );
-
     const interval = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % slides.length);
-    }, 6000);
-
+    }, 4000);
     return () => clearInterval(interval);
   }, []);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ scale: scale.value }, { translateY: translateY.value }],
-  }));
+  // Subtitle rotation
+  useEffect(() => {
+    const subtitleInterval = setInterval(() => {
+      setCurrentSubtitleIndex((prev) => (prev + 1) % subtitles.length);
+    }, 4000);
+    return () => clearInterval(subtitleInterval);
+  }, []);
 
-  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % slides.length);
-  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
+  // Fade animation for subtitle
+  useEffect(() => {
+    fadeAnim.setValue(0);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 800,
+      useNativeDriver: true,
+    }).start();
+  }, [currentSubtitleIndex]);
+
+  // Logo entrance animation
+  useEffect(() => {
+    Animated.spring(logoScale, {
+      toValue: 1,
+      tension: 50,
+      friction: 7,
+      useNativeDriver: true,
+    }).start();
+  }, []);
 
   return (
     <View style={styles.container}>
-      {/* Background Slideshow */}
-      {slides.map((slide, index) => (
-        <Animated.View
-          key={index}
-          style={[
-            styles.slide,
-            {
-              opacity: currentSlide === index ? 1 : 0,
-            },
-          ]}
-        >
-          <Image source={{ uri: slide.image }} style={styles.image} resizeMode="cover" />
-          <LinearGradient
-            colors={["rgba(0,30,70,0.7)", "rgba(0,10,20,0.2)", "rgba(5,7,10,0.95)"]}
-            locations={[0, 0.4, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
-      ))}
+      <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
-      {/* Navigation Arrows */}
-      <TouchableOpacity style={[styles.arrow, styles.leftArrow]} onPress={prevSlide}>
-        <Text style={styles.arrowText}>‹</Text>
-      </TouchableOpacity>
+      {/* Background Image */}
+      <Image
+        source={{ uri: slides[currentSlide] }}
+        style={styles.backgroundImage}
+        blurRadius={3}
+      />
 
-      <TouchableOpacity style={[styles.arrow, styles.rightArrow]} onPress={nextSlide}>
-        <Text style={styles.arrowText}>›</Text>
-      </TouchableOpacity>
+      {/* Gradient overlay for better readability */}
+      <View style={styles.gradientOverlay} />
 
-      {/* Slide Indicators */}
-      <View style={styles.dotsContainer}>
-        {slides.map((_, index) => (
-          <TouchableOpacity
-            key={index}
-            onPress={() => setCurrentSlide(index)}
-            style={[
-              styles.dot,
-              currentSlide === index ? styles.dotActive : styles.dotInactive,
-            ]}
+      {/* Slide dots */}
+      <View style={styles.dots}>
+        {slides.map((_, i) => (
+          <View
+            key={i}
+            style={[styles.dot, currentSlide === i && styles.dotActive]}
           />
         ))}
       </View>
 
-      {/* Animated Content */}
-      <Animated.View style={[animatedStyle, styles.content]}>
-        <View style={styles.logoContainer}>
-          <Text style={styles.logo}>FRAMEZ</Text>
-          <Text style={styles.subtitle}>CAPTURE YOUR WORLD</Text>
+      {/* Foreground Content */}
+      <View style={styles.content}>
+        <View style={styles.top}>
+          {/* Billabong-style Logo */}
+          <Animated.View style={{ transform: [{ scale: logoScale }] }}>
+            <Text style={styles.logo}>Framez</Text>
+            <View style={styles.logoUnderline} />
+          </Animated.View>
+
+          {/* Animated subtitle */}
+          <Animated.Text style={[styles.subtitle, { opacity: fadeAnim }]}>
+            {subtitles[currentSubtitleIndex]}
+          </Animated.Text>
         </View>
 
-        <Text style={styles.tagline}>
-          Share moments that matter.{"\n"}Connect with people who inspire you.
-        </Text>
-
-        <TouchableOpacity onPress={() => router.push("/(auth)/login")} activeOpacity={0.9}>
-          <LinearGradient
-            colors={["#3b82f6", "#06b6d4"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.ctaButton}
+        <View style={styles.bottom}>
+          <TouchableOpacity
+            style={styles.btnPrimary}
+            onPress={() => router.push('/(auth)/login')}
+            activeOpacity={0.85}
           >
-            <Text style={styles.ctaText}>GET STARTED</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-
-        <View style={styles.signUpContainer}>
-          <Text style={styles.signUpText}>New to Framez? </Text>
-          <TouchableOpacity onPress={() => router.push("/(auth)/signup")}>
-            <Text style={styles.signUpLink}>Create Account</Text>
+            <Text style={styles.btnPrimaryText}>Get Started</Text>
           </TouchableOpacity>
-        </View>
-      </Animated.View>
 
-      {/* Slide Caption */}
-      <View style={styles.captionContainer}>
-        <Text style={styles.caption}>{slides[currentSlide].caption}</Text>
+          <TouchableOpacity
+            style={styles.btnSecondary}
+            onPress={() => router.push('/(auth)/signup')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.btnSecondaryText}>Create Account</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.footer}>
+            Join millions sharing their moments ✨
+          </Text>
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#05070a" },
-  slide: { ...StyleSheet.absoluteFillObject, width, height },
-  image: { width: "100%", height: "100%", transform: [{ scale: 1.1 }] },
-  arrow: {
-    position: "absolute",
-    top: height / 2 - 24,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    justifyContent: "center",
-    alignItems: "center",
+  container: {
+    flex: 1,
+    backgroundColor: '#000000',
   },
-  leftArrow: { left: 16 },
-  rightArrow: { right: 16 },
-  arrowText: { color: "#b0d4ff", fontSize: 24 },
-  dotsContainer: {
-    position: "absolute",
-    bottom: 16,
+  backgroundImage: {
+    position: 'absolute',
     width,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
+    height,
   },
-  dot: { width: 8, height: 8, borderRadius: 4, marginHorizontal: 4 },
-  dotActive: { backgroundColor: "rgba(255,255,255,0.8)" },
-  dotInactive: { backgroundColor: "rgba(255,255,255,0.3)" },
-  content: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 16 },
-  logoContainer: { alignItems: "center", marginBottom: 32 },
+  gradientOverlay: {
+    position: 'absolute',
+    width,
+    height,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  dots: {
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    zIndex: 10,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  dotActive: {
+    width: 20,
+    backgroundColor: '#fff',
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'space-between',
+    paddingTop: 140,
+    paddingBottom: 60,
+    paddingHorizontal: 32,
+  },
+  top: {
+    alignItems: 'center',
+    gap: 20,
+  },
   logo: {
-    fontSize: 48,
-    fontWeight: "900",
-    color: "#e6f0ff",
-    letterSpacing: 2,
-    textShadowColor: "rgba(0, 120, 255, 0.6)",
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 20,
+    fontSize: 72,
+    fontWeight: '400',
+    color: '#FFFFFF',
+    letterSpacing: 3,
+    fontFamily: Platform.OS === 'ios' ? 'Snell Roundhand' : 'cursive',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 12,
   },
-  subtitle: { color: "#b0d4ff", fontSize: 16, letterSpacing: 2, opacity: 0.8 },
-  tagline: {
-    color: "#e6f0ff",
-    fontSize: 16,
-    textAlign: "center",
-    marginBottom: 48,
-    lineHeight: 24,
-    opacity: 0.9,
-  },
-  ctaButton: {
-    paddingHorizontal: 64,
-    paddingVertical: 16,
-    borderRadius: 999,
-    shadowColor: "#3b82f6",
-    shadowOffset: { width: 0, height: 8 },
+  logoUnderline: {
+    width: 100,
+    height: 2,
+    backgroundColor: '#FFFFFF',
+    marginTop: 8,
+    alignSelf: 'center',
+    borderRadius: 2,
+    shadowColor: '#FFFFFF',
+    shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
-    shadowRadius: 16,
-    elevation: 8,
-    marginBottom: 16,
+    shadowRadius: 8,
   },
-  ctaText: { color: "#fff", fontSize: 18, fontWeight: "bold", letterSpacing: 1 },
-  signUpContainer: { flexDirection: "row", alignItems: "center", marginTop: 16 },
-  signUpText: { color: "#b0d4ff", fontSize: 14 },
-  signUpLink: { color: "#3b82f6", fontSize: 14, fontWeight: "bold" },
-  captionContainer: { position: "absolute", bottom: 80, left: 16 },
-  caption: {
-    color: "#e6f0ff",
-    fontSize: 24,
-    fontWeight: "600",
-    letterSpacing: 1,
-    textShadowColor: "rgba(0, 8, 49, 0.7)",
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 15,
+  subtitle: {
+    fontSize: 18,
+    color: 'rgba(255,255,255,0.95)',
+    fontWeight: '500',
+    letterSpacing: 1.5,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  bottom: {
+    gap: 16,
+    alignItems: 'center',
+  },
+  btnPrimary: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 18,
+    borderRadius: 30,
+    alignItems: 'center',
+    shadowColor: '#FFFFFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  btnPrimaryText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000000',
+    letterSpacing: 0.5,
+  },
+  btnSecondary: {
+    width: '100%',
+    paddingVertical: 18,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  btnSecondaryText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  footer: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 20,
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
 });
