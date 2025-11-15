@@ -389,7 +389,7 @@ export default function FeedScreen() {
         post_id: selectedPost.id,
         user_id: currentUser.id,
         parent_id: replyTo?.id || null,
-        text: commentText.trim(),
+        content: commentText.trim(),
       });
 
       if (error) throw error;
@@ -597,7 +597,7 @@ export default function FeedScreen() {
           <Text style={styles.commentUsername}>{item.profiles?.full_name}</Text>
           <Text style={styles.commentTime}>{getTimeAgo(item.created_at)}</Text>
         </View>
-        <Text style={styles.commentText}>{item.text}</Text>
+        <Text style={styles.commentText}>{item.content}</Text>
         <View style={styles.commentActions}>
           <TouchableOpacity onPress={() => handleCommentLike(item.id)}>
             <Text style={styles.commentActionText}>

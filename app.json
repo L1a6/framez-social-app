@@ -32,6 +32,12 @@
     "plugins": [
       "expo-router",
       "expo-video"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b4b289ea-b213-42e2-a999-b0ea74c13ed0"
+      }
+    }
   }
 }
