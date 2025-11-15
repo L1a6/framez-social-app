@@ -1,8 +1,6 @@
-// app/(tabs)/_layout.tsx
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
-import Toast from 'react-native-toast-message';
 
 export default function TabsLayout() {
   return (
@@ -13,9 +11,9 @@ export default function TabsLayout() {
           backgroundColor: '#000000',
           borderTopWidth: 0.5,
           borderTopColor: 'rgba(255, 255, 255, 0.1)',
-          height: Platform.OS === 'ios' ? 88 : 60,
+          height: Platform.OS === 'ios' ? 85 : 60,
+          paddingBottom: Platform.OS === 'ios' ? 25 : 8,
           paddingTop: 8,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 8,
         },
         tabBarActiveTintColor: '#FFFFFF',
         tabBarInactiveTintColor: 'rgba(255, 255, 255, 0.4)',
@@ -26,7 +24,7 @@ export default function TabsLayout() {
         name="feed"
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
+            <Ionicons name="home" size={28} color={color} />
           ),
         }}
       />
@@ -34,7 +32,7 @@ export default function TabsLayout() {
         name="explore"
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="search" size={size} color={color} />
+            <Ionicons name="search" size={28} color={color} />
           ),
         }}
       />
@@ -42,7 +40,7 @@ export default function TabsLayout() {
         name="create"
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle" size={size + 8} color={color} />
+            <Ionicons name="add-circle" size={32} color={color} />
           ),
         }}
       />
@@ -50,7 +48,7 @@ export default function TabsLayout() {
         name="notifications"
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="heart" size={size} color={color} />
+            <Ionicons name="notifications" size={28} color={color} />
           ),
         }}
       />
@@ -58,8 +56,14 @@ export default function TabsLayout() {
         name="profile"
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-circle" size={size} color={color} />
+            <Ionicons name="person-circle" size={28} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="user-profile"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

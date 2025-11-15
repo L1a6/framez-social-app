@@ -88,7 +88,7 @@ export default function SignupScreen() {
         setUsername('');
         setFullName('');
         router.replace('/(auth)/login');
-      }, 2000);
+      }, 3000);
 
     } catch (error: any) {
       console.log('Signup error:', error);

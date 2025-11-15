@@ -1,4 +1,3 @@
-// app/(tabs)/user-profile.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -11,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -30,6 +30,7 @@ export default function UserProfileScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [messagingModal, setMessagingModal] = useState(false);
 
   useEffect(() => {
     getCurrentUser();
@@ -40,6 +41,9 @@ export default function UserProfileScreen() {
     const channel = supabase
       .channel('user_profile_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'follows' }, () => {
+        fetchProfile();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
         fetchProfile();
       })
       .subscribe();
@@ -76,7 +80,22 @@ export default function UserProfileScreen() {
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
-      setPosts(postsData || []);
+
+      const postsWithViews = await Promise.all(
+        (postsData || []).map(async (post) => {
+          const { count: viewsCount } = await supabase
+            .from('post_views')
+            .select('*', { count: 'exact', head: true })
+            .eq('post_id', post.id);
+
+          return {
+            ...post,
+            views_count: viewsCount || 0,
+          };
+        })
+      );
+
+      setPosts(postsWithViews);
 
       const { count: followersCount } = await supabase
         .from('follows')
@@ -122,6 +141,8 @@ export default function UserProfileScreen() {
       return;
     }
 
+    if (followLoading) return;
+
     setFollowLoading(true);
     try {
       if (isFollowing) {
@@ -132,7 +153,14 @@ export default function UserProfileScreen() {
           .eq('following_id', userId);
         
         setIsFollowing(false);
-        setFollowersCount(prev => prev - 1);
+        setFollowersCount(prev => Math.max(0, prev - 1));
+
+        await supabase
+          .from('notification_tracking')
+          .delete()
+          .eq('actor_id', currentUserId)
+          .eq('recipient_id', userId)
+          .eq('action_type', 'follow');
       } else {
         await supabase.from('follows').insert({
           follower_id: currentUserId,
@@ -141,6 +169,14 @@ export default function UserProfileScreen() {
         
         setIsFollowing(true);
         setFollowersCount(prev => prev + 1);
+
+        await supabase.rpc('create_notification_safe', {
+          p_recipient_id: userId,
+          p_actor_id: currentUserId,
+          p_type: 'follow',
+          p_entity_id: null,
+          p_message: 'started following you'
+        });
       }
     } catch (error) {
       console.error('Error following:', error);
@@ -152,11 +188,27 @@ export default function UserProfileScreen() {
 
   const renderPostItem = (post: any) => {
     if (post.image_url) {
-      return <Image source={{ uri: post.image_url }} style={styles.gridMedia} />;
+      return (
+        <View style={styles.gridMediaContainer}>
+          <Image source={{ uri: post.image_url }} style={styles.gridMedia} />
+          {post.views_count > 0 && (
+            <View style={styles.viewsOverlay}>
+              <Ionicons name="eye" size={12} color="#FFFFFF" />
+              <Text style={styles.viewsText}>{post.views_count}</Text>
+            </View>
+          )}
+        </View>
+      );
     } else if (post.caption) {
       return (
         <View style={[styles.gridMedia, styles.textOnlyPost]}>
           <Text style={styles.textOnlyCaption} numberOfLines={5}>{post.caption}</Text>
+          {post.views_count > 0 && (
+            <View style={styles.viewsOverlay}>
+              <Ionicons name="eye" size={12} color="#FFFFFF" />
+              <Text style={styles.viewsText}>{post.views_count}</Text>
+            </View>
+          )}
         </View>
       );
     }
@@ -247,6 +299,13 @@ export default function UserProfileScreen() {
                 </Text>
               )}
             </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.messageButton}
+              onPress={() => setMessagingModal(true)}
+            >
+              <Text style={styles.messageButtonText}>Message</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -271,6 +330,19 @@ export default function UserProfileScreen() {
           </View>
         )}
       </ScrollView>
+
+      <Modal visible={messagingModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.comingSoonCard}>
+            <Ionicons name="chatbubbles" size={48} color="#6366f1" />
+            <Text style={styles.comingSoonTitle}>Messaging</Text>
+            <Text style={styles.comingSoonMessage}>Direct messaging coming soon!</Text>
+            <TouchableOpacity style={styles.comingSoonButton} onPress={() => setMessagingModal(false)}>
+              <Text style={styles.comingSoonButtonText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -297,18 +369,29 @@ const styles = StyleSheet.create({
   pronouns: { fontSize: 14, color: '#888', marginBottom: 8 },
   bio: { fontSize: 14, color: '#DDD', lineHeight: 20, textAlign: 'center' },
   noBio: { fontSize: 14, color: '#666', fontStyle: 'italic' },
-  actionsContainer: { paddingHorizontal: 20, marginBottom: 16 },
-  followButton: { backgroundColor: '#FFFFFF', borderRadius: 12, height: 44, justifyContent: 'center', alignItems: 'center' },
+  actionsContainer: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 16, gap: 12 },
+  followButton: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 10, height: 36, justifyContent: 'center', alignItems: 'center' },
   followingButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#FFFFFF' },
-  followButtonText: { color: '#000000', fontSize: 16, fontWeight: '700' },
+  followButtonText: { color: '#000000', fontSize: 15, fontWeight: '700' },
   followingButtonText: { color: '#FFFFFF' },
+  messageButton: { flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: '#FFFFFF', borderRadius: 10, height: 36, justifyContent: 'center', alignItems: 'center' },
+  messageButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   divider: { height: 1, backgroundColor: '#222', marginVertical: 8 },
   emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80 },
   emptyText: { color: '#888', fontSize: 18, fontWeight: '600', marginTop: 16 },
   postsGrid: { flexDirection: 'row', flexWrap: 'wrap', margin: -1 },
   gridItem: { width: ITEM_SIZE, height: ITEM_SIZE, margin: 1 },
+  gridMediaContainer: { width: '100%', height: '100%', position: 'relative' },
   gridMedia: { width: '100%', height: '100%', backgroundColor: '#111' },
   textOnlyPost: { justifyContent: 'center', alignItems: 'center', padding: 8, backgroundColor: '#1a1a1a' },
   textOnlyCaption: { color: '#FFF', fontSize: 12, textAlign: 'center' },
   emptyPost: { backgroundColor: '#0a0a0a' },
+  viewsOverlay: { position: 'absolute', bottom: 4, right: 4, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 10 },
+  viewsText: { color: '#FFFFFF', fontSize: 10, fontWeight: '600' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  comingSoonCard: { backgroundColor: '#1a1a1a', borderRadius: 20, padding: 32, alignItems: 'center', width: '100%', maxWidth: 300, borderWidth: 1, borderColor: 'rgba(99,102,241,0.3)' },
+  comingSoonTitle: { fontSize: 22, fontWeight: '700', color: '#FFFFFF', marginTop: 16, marginBottom: 8 },
+  comingSoonMessage: { fontSize: 14, color: 'rgba(255,255,255,0.7)', textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  comingSoonButton: { backgroundColor: '#FFFFFF', borderRadius: 10, paddingHorizontal: 24, paddingVertical: 12, width: '100%' },
+  comingSoonButtonText: { color: '#000000', fontSize: 15, fontWeight: '700', textAlign: 'center' },
 });

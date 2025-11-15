@@ -127,7 +127,7 @@ export default function WelcomeScreen() {
           </TouchableOpacity>
 
           <Text style={styles.footer}>
-            Join millions sharing their moments ✨
+            Join millions sharing their moments
           </Text>
         </View>
       </View>
