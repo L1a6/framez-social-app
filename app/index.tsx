@@ -15,9 +15,9 @@ import { router } from 'expo-router';
 const { width, height } = Dimensions.get('window');
 
 const slides = [
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&q=80',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=800&q=80',
-  'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=800&q=80',
+  'https://tse1.mm.bing.net/th/id/OIP.gyLuDHffR240aIyvBg3nigHaHa?cb=ucfimg2ucfimg=1&rs=1&pid=ImgDetMain&o=7&rm=3',
+  'https://media.istockphoto.com/id/2155004308/photo/two-gen-z-friends-using-a-smartphone-together-low-angle-shot-with-modern-buildings-in-the.jpg?s=612x612&w=0&k=20&c=jP0dgbY9leX84Y0mp7F-FIjhOxAcHFKUhdw4rAg1gDA=',
+  'https://media.istockphoto.com/id/1356527683/photo/male-vlogger-or-social-influencer-in-city-using-mobile-phone-on-street-to-post-to-social-media.jpg?s=612x612&w=0&k=20&c=OAqb7FepDByIr11CWuIfUMfuah7DBJrmDnisjAFYcK4=',
   'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=800&q=80',
 ];
 
