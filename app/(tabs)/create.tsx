@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
-  ScrollView,
+  ScrollView,  
   Alert,
   ActivityIndicator,
   Modal,

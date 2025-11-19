@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -9,16 +10,17 @@ import {
   StatusBar,
   Animated,
   Platform,
+  SafeAreaView,
 } from 'react-native';
 import { router } from 'expo-router';
 
 const { width, height } = Dimensions.get('window');
 
 const slides = [
+  'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=800&q=80',
   'https://tse1.mm.bing.net/th/id/OIP.gyLuDHffR240aIyvBg3nigHaHa?cb=ucfimg2ucfimg=1&rs=1&pid=ImgDetMain&o=7&rm=3',
   'https://media.istockphoto.com/id/2155004308/photo/two-gen-z-friends-using-a-smartphone-together-low-angle-shot-with-modern-buildings-in-the.jpg?s=612x612&w=0&k=20&c=jP0dgbY9leX84Y0mp7F-FIjhOxAcHFKUhdw4rAg1gDA=',
-  'https://media.istockphoto.com/id/1356527683/photo/male-vlogger-or-social-influencer-in-city-using-mobile-phone-on-street-to-post-to-social-media.jpg?s=612x612&w=0&k=20&c=OAqb7FepDByIr11CWuIfUMfuah7DBJrmDnisjAFYcK4=',
-  'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=800&q=80',
+  'https://media.istockphoto.com/id/1356527683/photo/male-vlogger-or-social-influencer-in-city-using-mobile-phone-on-street-to-post-to-social-media.jpg?s=612x612&w=0&k=20&c=OAqb7FepDByIr11CWuIfUMfuah7DBJrmDnisjAFYcK4=', 
 ];
 
 const subtitles = [
@@ -72,65 +74,71 @@ export default function WelcomeScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="light-content" backgroundColor="#000000" translucent />
 
-      {/* Background Image */}
+      {/* Background Image - Full Screen */}
       <Image
         source={{ uri: slides[currentSlide] }}
         style={styles.backgroundImage}
         blurRadius={3}
+        resizeMode="cover"
       />
 
       {/* Gradient overlay for better readability */}
       <View style={styles.gradientOverlay} />
 
-      {/* Slide dots */}
-      <View style={styles.dots}>
-        {slides.map((_, i) => (
-          <View
-            key={i}
-            style={[styles.dot, currentSlide === i && styles.dotActive]}
-          />
-        ))}
-      </View>
-
-      {/* Foreground Content */}
-      <View style={styles.content}>
-        <View style={styles.top}>
-          {/* Billabong-style Logo */}
-          <Animated.View style={{ transform: [{ scale: logoScale }] }}>
-            <Text style={styles.logo}>Framez</Text>
-            <View style={styles.logoUnderline} />
-          </Animated.View>
-
-          {/* Animated subtitle */}
-          <Animated.Text style={[styles.subtitle, { opacity: fadeAnim }]}>
-            {subtitles[currentSubtitleIndex]}
-          </Animated.Text>
+      {/* Safe Area for Content */}
+      <SafeAreaView style={styles.safeArea}>
+        {/* Slide dots */}
+        <View style={styles.dotsContainer}>
+          <View style={styles.dots}>
+            {slides.map((_, i) => (
+              <View
+                key={i}
+                style={[styles.dot, currentSlide === i && styles.dotActive]}
+              />
+            ))}
+          </View>
         </View>
 
-        <View style={styles.bottom}>
-          <TouchableOpacity
-            style={styles.btnPrimary}
-            onPress={() => router.push('/(auth)/login')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.btnPrimaryText}>Get Started</Text>
-          </TouchableOpacity>
+        {/* Foreground Content */}
+        <View style={styles.content}>
+          <View style={styles.top}>
+            {/* Billabong-style Logo */}
+            <Animated.View style={{ transform: [{ scale: logoScale }] }}>
+              <Text style={styles.logo}>Framez</Text>
+              <View style={styles.logoUnderline} />
+            </Animated.View>
 
-          <TouchableOpacity
-            style={styles.btnSecondary}
-            onPress={() => router.push('/(auth)/signup')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.btnSecondaryText}>Create Account</Text>
-          </TouchableOpacity>
+            {/* Animated subtitle */}
+            <Animated.Text style={[styles.subtitle, { opacity: fadeAnim }]}>
+              {subtitles[currentSubtitleIndex]}
+            </Animated.Text>
+          </View>
 
-          <Text style={styles.footer}>
-            Join millions sharing their moments
-          </Text>
+          <View style={styles.bottom}>
+            <TouchableOpacity
+              style={styles.btnPrimary}
+              onPress={() => router.push('/(auth)/login')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.btnPrimaryText}>Get Started</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.btnSecondary}
+              onPress={() => router.push('/(auth)/signup')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.btnSecondaryText}>Create Account</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.footer}>
+              Join millions sharing their moments
+            </Text>
+          </View>
         </View>
-      </View>
+      </SafeAreaView>
     </View>
   );
 }
@@ -142,24 +150,34 @@ const styles = StyleSheet.create({
   },
   backgroundImage: {
     position: 'absolute',
-    width,
-    height,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
   },
   gradientOverlay: {
     position: 'absolute',
-    width,
-    height,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-  },
-  dots: {
-    position: 'absolute',
-    top: 60,
+    top: 0,
     left: 0,
     right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  safeArea: {
+    flex: 1,
+  },
+  dotsContainer: {
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 12,
+    paddingBottom: 12,
+  },
+  dots: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 8,
-    zIndex: 10,
   },
   dot: {
     width: 6,
@@ -174,16 +192,17 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: 'space-between',
-    paddingTop: 140,
-    paddingBottom: 60,
     paddingHorizontal: 32,
+    paddingTop: height * 0.08,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 32,
   },
   top: {
     alignItems: 'center',
     gap: 20,
+    paddingTop: height * 0.05,
   },
   logo: {
-    fontSize: 72,
+    fontSize: Math.min(width * 0.18, 72),
     fontWeight: '400',
     color: '#FFFFFF',
     letterSpacing: 3,
@@ -205,7 +224,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: Math.min(width * 0.045, 18),
     color: 'rgba(255,255,255,0.95)',
     fontWeight: '500',
     letterSpacing: 1.5,
@@ -213,13 +232,17 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
+    paddingHorizontal: 20,
   },
   bottom: {
     gap: 16,
     alignItems: 'center',
+    width: '100%',
+    paddingBottom: Platform.OS === 'ios' ? 0 : 8,
   },
   btnPrimary: {
     width: '100%',
+    maxWidth: 400,
     backgroundColor: '#FFFFFF',
     paddingVertical: 18,
     borderRadius: 30,
@@ -238,6 +261,7 @@ const styles = StyleSheet.create({
   },
   btnSecondary: {
     width: '100%',
+    maxWidth: 400,
     paddingVertical: 18,
     borderRadius: 30,
     borderWidth: 2,
@@ -262,3 +286,4 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
 });
+

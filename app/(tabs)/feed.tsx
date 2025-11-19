@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
@@ -19,8 +20,72 @@ import {
 import { router } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import { VideoView, useVideoPlayer } from 'expo-video';
 
 const { width } = Dimensions.get('window');
+
+const VideoPlayer = React.memo(({ videoUrl }: { videoUrl: string }) => {
+  const player = useVideoPlayer(videoUrl, player => {
+    player.loop = false;
+  });
+
+  return (
+    <VideoView
+      style={styles.postVideo}
+      player={player}
+      contentFit="contain"
+      nativeControls={true}
+    />
+  );
+});
+
+const MediaCarousel = React.memo(({ media }: { 
+  media: Array<{ type: string; url: string }>;
+}) => {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  if (!media || media.length === 0) return null;
+
+  return (
+    <View style={styles.mediaContainer}>
+      <FlatList
+        data={media}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEnabled={true}
+        nestedScrollEnabled={true}
+        onMomentumScrollEnd={(e) => {
+          const index = Math.round(e.nativeEvent.contentOffset.x / width);
+          setActiveIndex(index);
+        }}
+        renderItem={({ item }) => (
+          <View style={styles.mediaItem}>
+            {item.type === 'video' ? (
+              <VideoPlayer videoUrl={item.url} />
+            ) : (
+              <Image source={{ uri: item.url }} style={styles.postImage} />
+            )}
+          </View>
+        )}
+        keyExtractor={(item, index) => `media-${index}-${item.type}`}
+      />
+      {media.length > 1 && (
+        <View style={styles.paginationDots}>
+          {media.map((_, index) => (
+            <View
+              key={`dot-${index}`}
+              style={[
+                styles.dot,
+                index === activeIndex && styles.activeDot
+              ]}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+});
 
 export default function FeedScreen() {
   const [posts, setPosts] = useState<any[]>([]);
@@ -30,16 +95,22 @@ export default function FeedScreen() {
   const [messagingModal, setMessagingModal] = useState(false);
   const [menuModal, setMenuModal] = useState(false);
   const [commentsModal, setCommentsModal] = useState(false);
+  const [editModal, setEditModal] = useState(false);
   const [selectedPost, setSelectedPost] = useState<any>(null);
+  const [editCaption, setEditCaption] = useState('');
+  const [updatingPost, setUpdatingPost] = useState(false);
   const [following, setFollowing] = useState<Set<string>>(new Set());
   const [unreadCount, setUnreadCount] = useState(0);
   const [comments, setComments] = useState<any[]>([]);
   const [commentText, setCommentText] = useState('');
   const [replyTo, setReplyTo] = useState<any>(null);
   const [commentLikes, setCommentLikes] = useState<Set<string>>(new Set());
+  const [commentDislikes, setCommentDislikes] = useState<Set<string>>(new Set());
   const [loadingComments, setLoadingComments] = useState(false);
   const [postingComment, setPostingComment] = useState(false);
   const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [deletingPost, setDeletingPost] = useState(false);
+  const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   
   const scrollY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
@@ -49,27 +120,24 @@ export default function FeedScreen() {
 
   useEffect(() => {
     getCurrentUser();
-    fetchPosts();
     setupRealtimeSubscription();
   }, []);
 
+  useEffect(() => {
+    if (currentUser) {
+      fetchPosts();
+      fetchUnreadCount();
+    }
+  }, [currentUser]);
+
   const setupRealtimeSubscription = () => {
     const channel = supabase
-      .channel('all_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, () => fetchPosts())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => {
-        fetchPosts();
-        if (selectedPost) fetchComments(selectedPost.id);
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comment_likes' }, () => {
-        if (selectedPost) fetchComments(selectedPost.id);
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchPosts())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'follows' }, () => {
-        if (currentUser) fetchFollowing(currentUser.id);
-      })
+      .channel('notifications_only')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
         if (currentUser) fetchUnreadCount();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'follows' }, () => {
+        if (currentUser) fetchFollowing(currentUser.id);
       })
       .subscribe();
 
@@ -89,12 +157,23 @@ export default function FeedScreen() {
 
   const fetchUnreadCount = async () => {
     if (!currentUser) return;
-    const { count } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('recipient_id', currentUser.id)
-      .eq('is_read', false);
-    setUnreadCount(count || 0);
+    
+    try {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('recipient_id', currentUser.id)
+        .eq('is_read', false);
+      
+      if (error) {
+        console.error('Error fetching unread count:', error);
+        return;
+      }
+      
+      setUnreadCount(count || 0);
+    } catch (error) {
+      console.error('Error in fetchUnreadCount:', error);
+    }
   };
 
   const markNotificationsRead = async () => {
@@ -114,7 +193,26 @@ export default function FeedScreen() {
     }
   };
 
+  const getMediaUrls = (post: any) => {
+    const media: Array<{ type: 'image' | 'video'; url: string }> = [];
+    
+    if (post.media_urls && Array.isArray(post.media_urls)) {
+      return post.media_urls;
+    }
+    
+    if (post.video_url) {
+      media.push({ type: 'video', url: post.video_url });
+    }
+    if (post.image_url) {
+      media.push({ type: 'image', url: post.image_url });
+    }
+    
+    return media;
+  };
+
   const fetchPosts = async () => {
+    if (!currentUser) return;
+    
     try {
       const { data, error } = await supabase
         .from('posts')
@@ -131,44 +229,43 @@ export default function FeedScreen() {
         .limit(50);
 
       if (error) throw error;
-
       setHasMorePosts(data.length >= 50);
 
-      if (currentUser) {
-        const postsWithData = await Promise.all(
-          data.map(async (post) => {
-            const { data: likeData } = await supabase
-              .from('likes')
-              .select('id, profiles:user_id(full_name)')
-              .eq('post_id', post.id)
-              .order('created_at', { ascending: true })
-              .limit(1);
+      const postIds = data.map(p => p.id);
+      
+      const { data: likesData } = await supabase
+        .from('likes')
+        .select('post_id, user_id, profiles:user_id(full_name)')
+        .in('post_id', postIds)
+        .order('created_at', { ascending: true });
 
-            const { data: myLike } = await supabase
-              .from('likes')
-              .select('id')
-              .eq('post_id', post.id)
-              .eq('user_id', currentUser.id)
-              .maybeSingle();
+      const { data: myLikes } = await supabase
+        .from('likes')
+        .select('post_id')
+        .in('post_id', postIds)
+        .eq('user_id', currentUser.id);
 
-            const { count: totalLikes } = await supabase
-              .from('likes')
-              .select('*', { count: 'exact', head: true })
-              .eq('post_id', post.id);
+      const myLikesSet = new Set(myLikes?.map(l => l.post_id) || []);
+      const likesByPost = (likesData || []).reduce((acc: any, like: any) => {
+        if (!acc[like.post_id]) acc[like.post_id] = [];
+        acc[like.post_id].push(like);
+        return acc;
+      }, {});
 
-            return {
-              ...post,
-              is_liked: !!myLike,
-              first_liker: likeData && likeData.length > 0 ? (likeData[0] as any).profiles?.full_name : null,
-              total_likes: totalLikes || 0,
-            };
-          })
-        );
+      const postsWithData = data.map((post) => {
+        const postLikes = likesByPost[post.id] || [];
+        const firstLike = postLikes[0];
+        
+        return {
+          ...post,
+          is_liked: myLikesSet.has(post.id),
+          first_liker: firstLike?.profiles?.full_name || null,
+          total_likes: postLikes.length,
+          media: getMediaUrls(post),
+        };
+      });
 
-        setPosts(postsWithData);
-      } else {
-        setPosts(data);
-      }
+      setPosts(postsWithData);
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
@@ -180,13 +277,12 @@ export default function FeedScreen() {
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchPosts();
-  }, []);
+  }, [currentUser]);
 
   const getTimeAgo = (dateString: string) => {
     const now = new Date();
     const past = new Date(dateString);
     const diffInSeconds = Math.floor((now.getTime() - past.getTime()) / 1000);
-
     if (diffInSeconds < 60) return `${diffInSeconds}s`;
     const diffInMinutes = Math.floor(diffInSeconds / 60);
     if (diffInMinutes < 60) return `${diffInMinutes}m`;
@@ -205,40 +301,28 @@ export default function FeedScreen() {
     }
 
     const post = posts.find((p) => p.id === postId);
-    const isLiked = post?.is_liked;
+    if (!post) return;
+    const wasLiked = post.is_liked;
+    const newLikeCount = wasLiked ? post.total_likes - 1 : post.total_likes + 1;
 
-    setPosts((prevPosts) =>
-      prevPosts.map((p) =>
-        p.id === postId
-          ? {
-              ...p,
-              is_liked: !isLiked,
-              total_likes: isLiked ? p.total_likes - 1 : p.total_likes + 1,
-            }
-          : p
-      )
-    );
+    setPosts(prevPosts => prevPosts.map(p => {
+      if (p.id === postId) {
+        return {
+          ...p,
+          is_liked: !wasLiked,
+          total_likes: newLikeCount,
+          first_liker: !wasLiked && newLikeCount === 1 ? (currentUser.user_metadata?.full_name || 'You') : (wasLiked && newLikeCount === 0 ? null : p.first_liker)
+        };
+      }
+      return p;
+    }));
 
     try {
-      if (isLiked) {
-        await supabase
-          .from('likes')
-          .delete()
-          .eq('post_id', postId)
-          .eq('user_id', currentUser.id);
-        
-        await supabase
-          .from('notification_tracking')
-          .delete()
-          .eq('actor_id', currentUser.id)
-          .eq('entity_id', postId)
-          .eq('action_type', 'like');
+      if (wasLiked) {
+        await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', currentUser.id);
+        await supabase.from('notification_tracking').delete().eq('actor_id', currentUser.id).eq('entity_id', postId).eq('action_type', 'like');
       } else {
-        await supabase.from('likes').insert({
-          post_id: postId,
-          user_id: currentUser.id,
-        });
-
+        await supabase.from('likes').insert({ post_id: postId, user_id: currentUser.id });
         if (post.user_id !== currentUser.id) {
           await supabase.rpc('create_notification_safe', {
             p_recipient_id: post.user_id,
@@ -249,20 +333,14 @@ export default function FeedScreen() {
           });
         }
       }
-      await fetchPosts();
     } catch (error) {
       console.error('Error toggling like:', error);
-      setPosts((prevPosts) =>
-        prevPosts.map((p) =>
-          p.id === postId
-            ? {
-                ...p,
-                is_liked: isLiked,
-                total_likes: isLiked ? p.total_likes + 1 : p.total_likes - 1,
-              }
-            : p
-        )
-      );
+      setPosts(prevPosts => prevPosts.map(p => {
+        if (p.id === postId) {
+          return { ...p, is_liked: wasLiked, total_likes: post.total_likes, first_liker: post.first_liker };
+        }
+        return p;
+      }));
     }
   };
 
@@ -271,7 +349,6 @@ export default function FeedScreen() {
       Alert.alert('Login Required', 'Please login to follow users');
       return;
     }
-
     if (followingInProgress.has(userId)) return;
 
     const isFollowing = following.has(userId);
@@ -279,33 +356,13 @@ export default function FeedScreen() {
 
     try {
       if (isFollowing) {
-        await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', currentUser.id)
-          .eq('following_id', userId);
-        
-        setFollowing(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(userId);
-          return newSet;
-        });
-
-        await supabase
-          .from('notification_tracking')
-          .delete()
-          .eq('actor_id', currentUser.id)
-          .eq('recipient_id', userId)
-          .eq('action_type', 'follow');
+        await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', userId);
+        setFollowing(prev => { const newSet = new Set(prev); newSet.delete(userId); return newSet; });
+        await supabase.from('notification_tracking').delete().eq('actor_id', currentUser.id).eq('recipient_id', userId).eq('action_type', 'follow');
       } else {
-        const { error } = await supabase.from('follows').insert({
-          follower_id: currentUser.id,
-          following_id: userId,
-        });
-
+        const { error } = await supabase.from('follows').insert({ follower_id: currentUser.id, following_id: userId });
         if (!error) {
           setFollowing(prev => new Set(prev).add(userId));
-
           await supabase.rpc('create_notification_safe', {
             p_recipient_id: userId,
             p_actor_id: currentUser.id,
@@ -318,55 +375,86 @@ export default function FeedScreen() {
     } catch (error) {
       console.error('Error following:', error);
     } finally {
-      setFollowingInProgress(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(userId);
-        return newSet;
-      });
+      setFollowingInProgress(prev => { const newSet = new Set(prev); newSet.delete(userId); return newSet; });
     }
   };
 
-  const openMenu = (post: any) => {
-    setSelectedPost(post);
-    setMenuModal(true);
+  const handleEditPost = () => {
+    if (!selectedPost) return;
+    setEditCaption(selectedPost.caption || '');
+    setMenuModal(false);
+    setEditModal(true);
   };
 
-  const openComments = (post: any) => {
-    setSelectedPost(post);
-    setCommentsModal(true);
-    fetchComments(post.id);
+  const handleUpdatePost = async () => {
+    if (!selectedPost || !currentUser) return;
+    setUpdatingPost(true);
+    try {
+      const { error } = await supabase.from('posts').update({ caption: editCaption.trim() }).eq('id', selectedPost.id).eq('user_id', currentUser.id);
+      if (error) throw error;
+      setPosts(prevPosts => prevPosts.map(p => p.id === selectedPost.id ? { ...p, caption: editCaption.trim() } : p));
+      setEditModal(false);
+      setSelectedPost(null);
+      setEditCaption('');
+      Alert.alert('Success', 'Post updated successfully');
+    } catch (error) {
+      console.error('Error updating post:', error);
+      Alert.alert('Error', 'Failed to update post');
+    } finally {
+      setUpdatingPost(false);
+    }
   };
+
+  const handleDeletePost = async () => {
+    if (!selectedPost || !currentUser || selectedPost.user_id !== currentUser.id) return;
+    Alert.alert('Delete Post', 'Are you sure you want to delete this post? This action cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          setDeletingPost(true);
+          setMenuModal(false);
+          try {
+            await supabase.from('notifications').delete().eq('entity_id', selectedPost.id);
+            const { data: commentIds } = await supabase.from('comments').select('id').eq('post_id', selectedPost.id);
+            if (commentIds && commentIds.length > 0) {
+              const ids = commentIds.map(c => c.id);
+              await supabase.from('comment_likes').delete().in('comment_id', ids);
+              await supabase.from('notifications').delete().in('entity_id', ids);
+            }
+            await supabase.from('comments').delete().eq('post_id', selectedPost.id);
+            await supabase.from('likes').delete().eq('post_id', selectedPost.id);
+            await supabase.from('posts').delete().eq('id', selectedPost.id);
+            setPosts(prevPosts => prevPosts.filter(p => p.id !== selectedPost.id));
+            setSelectedPost(null);
+            Alert.alert('Success', 'Post deleted successfully');
+          } catch (error) {
+            console.error('Error deleting post:', error);
+            Alert.alert('Error', 'Failed to delete post');
+          } finally {
+            setDeletingPost(false);
+          }
+        }
+      }
+    ]);
+  };
+
+  const openMenu = (post: any) => { setSelectedPost(post); setMenuModal(true); };
+  const openComments = (post: any) => { setSelectedPost(post); setCommentsModal(true); fetchComments(post.id); };
 
   const fetchComments = async (postId: string) => {
     setLoadingComments(true);
     try {
-      const { data, error } = await supabase
-        .from('comments')
-        .select(`
-          *,
-          profiles:user_id (
-            id,
-            username,
-            full_name,
-            avatar_url
-          )
-        `)
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true });
-
+      const { data, error } = await supabase.from('comments').select(`*, profiles:user_id (id, username, full_name, avatar_url)`).eq('post_id', postId).order('created_at', { ascending: true });
       if (error) throw error;
-
       if (currentUser) {
-        const { data: likedComments } = await supabase
-          .from('comment_likes')
-          .select('comment_id')
-          .eq('user_id', currentUser.id);
-
+        const { data: likedComments } = await supabase.from('comment_likes').select('comment_id, like_type').eq('user_id', currentUser.id);
         if (likedComments) {
-          setCommentLikes(new Set(likedComments.map(l => l.comment_id)));
+          setCommentLikes(new Set(likedComments.filter(l => l.like_type === 'like').map(l => l.comment_id)));
+          setCommentDislikes(new Set(likedComments.filter(l => l.like_type === 'dislike').map(l => l.comment_id)));
         }
       }
-
       setComments(data || []);
     } catch (error) {
       console.error('Error fetching comments:', error);
@@ -380,20 +468,33 @@ export default function FeedScreen() {
       Alert.alert('Login Required', 'Please login to comment');
       return;
     }
-
     if (!commentText.trim()) return;
-
+    
     setPostingComment(true);
     try {
-      const { error } = await supabase.from('comments').insert({
-        post_id: selectedPost.id,
-        user_id: currentUser.id,
-        parent_id: replyTo?.id || null,
-        content: commentText.trim(),
-      });
-
+      const { data: newComment, error } = await supabase
+        .from('comments')
+        .insert({
+          post_id: selectedPost.id,
+          user_id: currentUser.id,
+          parent_id: replyTo?.id || null,
+          content: commentText.trim()
+        })
+        .select(`
+          *,
+          profiles:user_id (
+            id,
+            username,
+            full_name,
+            avatar_url
+          )
+        `)
+        .single();
+      
       if (error) throw error;
-
+      
+      setComments(prev => [...prev, newComment]);
+      
       if (selectedPost.user_id !== currentUser.id) {
         await supabase.rpc('create_notification_safe', {
           p_recipient_id: selectedPost.user_id,
@@ -403,10 +504,16 @@ export default function FeedScreen() {
           p_message: replyTo ? 'replied to your comment' : 'commented on your post'
         });
       }
-
+      
       setCommentText('');
       setReplyTo(null);
-      await fetchComments(selectedPost.id);
+      
+      setPosts(prevPosts => prevPosts.map(p => 
+        p.id === selectedPost.id 
+          ? { ...p, comments_count: (p.comments_count || 0) + 1 }
+          : p
+      ));
+      
     } catch (error) {
       console.error('Error adding comment:', error);
       Alert.alert('Error', 'Failed to add comment');
@@ -415,46 +522,38 @@ export default function FeedScreen() {
     }
   };
 
-  const handleCommentLike = async (commentId: string) => {
-    if (!currentUser) {
-      Alert.alert('Login Required', 'Please login to like comments');
-      return;
-    }
-
+  const handleCommentLike = async (commentId: string, type: 'like' | 'dislike') => {
+    if (!currentUser) { Alert.alert('Login Required', 'Please login to like comments'); return; }
+    
     const isLiked = commentLikes.has(commentId);
-
-    setCommentLikes(prev => {
-      const newSet = new Set(prev);
-      if (isLiked) {
-        newSet.delete(commentId);
-      } else {
-        newSet.add(commentId);
-      }
-      return newSet;
-    });
-
+    const isDisliked = commentDislikes.has(commentId);
+    
+    if (type === 'like') {
+      setCommentLikes(prev => { const newSet = new Set(prev); isLiked ? newSet.delete(commentId) : newSet.add(commentId); return newSet; });
+      if (isDisliked) setCommentDislikes(prev => { const newSet = new Set(prev); newSet.delete(commentId); return newSet; });
+    } else {
+      setCommentDislikes(prev => { const newSet = new Set(prev); isDisliked ? newSet.delete(commentId) : newSet.add(commentId); return newSet; });
+      if (isLiked) setCommentLikes(prev => { const newSet = new Set(prev); newSet.delete(commentId); return newSet; });
+    }
+    
     try {
-      if (isLiked) {
-        await supabase
-          .from('comment_likes')
-          .delete()
-          .eq('comment_id', commentId)
-          .eq('user_id', currentUser.id);
+      if ((type === 'like' && isLiked) || (type === 'dislike' && isDisliked)) {
+        await supabase.from('comment_likes').delete().eq('comment_id', commentId).eq('user_id', currentUser.id);
       } else {
-        await supabase.from('comment_likes').insert({
-          comment_id: commentId,
-          user_id: currentUser.id,
-        });
-
-        const comment = comments.find(c => c.id === commentId);
-        if (comment && comment.user_id !== currentUser.id) {
-          await supabase.rpc('create_notification_safe', {
-            p_recipient_id: comment.user_id,
-            p_actor_id: currentUser.id,
-            p_type: 'comment_like',
-            p_entity_id: commentId,
-            p_message: 'liked your comment'
-          });
+        await supabase.from('comment_likes').delete().eq('comment_id', commentId).eq('user_id', currentUser.id);
+        await supabase.from('comment_likes').insert({ comment_id: commentId, user_id: currentUser.id, like_type: type });
+        
+        if (type === 'like') {
+          const comment = comments.find(c => c.id === commentId);
+          if (comment && comment.user_id !== currentUser.id) {
+            await supabase.rpc('create_notification_safe', {
+              p_recipient_id: comment.user_id,
+              p_actor_id: currentUser.id,
+              p_type: 'comment_like',
+              p_entity_id: commentId,
+              p_message: 'liked your comment'
+            });
+          }
         }
       }
     } catch (error) {
@@ -463,207 +562,148 @@ export default function FeedScreen() {
   };
 
   const handleProfileClick = (userId: string) => {
-    if (userId === currentUser?.id) {
-      router.push('/(tabs)/profile');
-    } else {
-      router.push(`/(tabs)/user-profile?userId=${userId}`);
-    }
+    userId === currentUser?.id ? router.push('/(tabs)/profile') : router.push(`/(tabs)/user-profile?userId=${userId}`);
   };
 
-  const handleScroll = Animated.event(
-    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-    {
-      useNativeDriver: true,
-      listener: (event: any) => {
-        const currentScrollY = event.nativeEvent.contentOffset.y;
-        const delta = currentScrollY - lastScrollY.current;
+  const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+    useNativeDriver: true,
+    listener: (event: any) => {
+      const currentScrollY = event.nativeEvent.contentOffset.y;
+      const delta = currentScrollY - lastScrollY.current;
+      if (delta > 5 && currentScrollY > 50) {
+        Animated.timing(headerTranslateY, { toValue: -100, duration: 200, useNativeDriver: true }).start();
+      } else if (delta < -5) {
+        Animated.timing(headerTranslateY, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+      }
+      lastScrollY.current = currentScrollY;
+    },
+  });
 
-        if (delta > 5 && currentScrollY > 50) {
-          Animated.timing(headerTranslateY, {
-            toValue: -100,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
-        } else if (delta < -5) {
-          Animated.timing(headerTranslateY, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
+  const organizeComments = (comments: any[]) => {
+    const topLevel = comments.filter(c => !c.parent_id);
+    const organized: any[] = [];
+    
+    topLevel.forEach(parent => {
+      organized.push(parent);
+      const replies = comments.filter(c => c.parent_id === parent.id);
+      if (replies.length > 0) {
+        const isExpanded = expandedComments.has(parent.id);
+        const visibleReplies = isExpanded ? replies : replies.slice(0, 3);
+        organized.push(...visibleReplies.map(r => ({ ...r, isReply: true })));
+        if (replies.length > 3) {
+          organized.push({ isViewMore: true, parentId: parent.id, remainingCount: replies.length - (isExpanded ? 0 : 3), isExpanded });
         }
-
-        lastScrollY.current = currentScrollY;
-      },
-    }
-  );
+      }
+    });
+    
+    return organized;
+  };
 
   const renderPost = ({ item }: { item: any }) => (
     <View style={styles.postContainer}>
       <View style={styles.postHeader}>
-        <TouchableOpacity
-          style={styles.userInfo}
-          onPress={() => handleProfileClick(item.user_id)}
-        >
-          <Image
-            source={{
-              uri: item.profiles?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.profiles?.full_name || 'User')}&background=6366f1&color=fff`,
-            }}
-            style={styles.avatar}
-          />
+        <TouchableOpacity style={styles.userInfo} onPress={() => handleProfileClick(item.user_id)}>
+          <Image source={{ uri: item.profiles?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.profiles?.full_name || 'User')}&background=6366f1&color=fff` }} style={styles.avatar} />
           <Text style={styles.displayName}>{item.profiles?.full_name}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => openMenu(item)}>
-          <Ionicons name="ellipsis-horizontal" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
+        <TouchableOpacity onPress={() => openMenu(item)}><Ionicons name="ellipsis-horizontal" size={24} color="#FFFFFF" /></TouchableOpacity>
       </View>
-
-      {item.image_url && (
-        <TouchableOpacity
-          onPress={() => router.push(`/post/${item.id}`)}
-          activeOpacity={0.95}
-        >
-          <Image source={{ uri: item.image_url }} style={styles.postImage} />
-        </TouchableOpacity>
-      )}
-
-      {item.caption && !item.image_url && !item.video_url && (
-        <View style={styles.textOnlyPost}>
-          <Text style={styles.textOnlyCaption}>{item.caption}</Text>
-        </View>
-      )}
-
+      {item.media && item.media.length > 0 ? <MediaCarousel media={item.media} /> : item.caption ? <View style={styles.textOnlyPost}><Text style={styles.textOnlyCaption}>{item.caption}</Text></View> : null}
       <View style={styles.postActions}>
         <View style={styles.leftActions}>
-          <TouchableOpacity
-            onPress={() => handleLike(item.id)}
-            style={styles.actionButton}
-          >
-            <Ionicons
-              name={item.is_liked ? 'heart' : 'heart-outline'}
-              size={28}
-              color={item.is_liked ? '#FF3B30' : '#FFFFFF'}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => openComments(item)}
-            style={styles.actionButton}
-          >
-            <Ionicons name="chatbubble-outline" size={26} color="#FFFFFF" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => setMessagingModal(true)}
-          >
-            <Ionicons name="paper-plane-outline" size={26} color="#FFFFFF" />
-          </TouchableOpacity>
+          <TouchableOpacity onPress={() => handleLike(item.id)} style={styles.actionButton}><Ionicons name={item.is_liked ? 'heart' : 'heart-outline'} size={24} color={item.is_liked ? '#FF3B30' : '#FFFFFF'} /></TouchableOpacity>
+          <TouchableOpacity onPress={() => openComments(item)} style={styles.actionButton}><Ionicons name="chatbubble-outline" size={22} color="#FFFFFF" /></TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton} onPress={() => setMessagingModal(true)}><Ionicons name="paper-plane-outline" size={22} color="#FFFFFF" /></TouchableOpacity>
         </View>
       </View>
-
       <View style={styles.postInfo}>
-        {item.total_likes > 0 && (
-          <Text style={styles.likesText}>
-            Liked by <Text style={styles.boldText}>{item.first_liker || 'someone'}</Text>
-            {item.total_likes > 1 && ` and ${item.total_likes - 1} others`}
-          </Text>
-        )}
-        {item.caption && (item.image_url || item.video_url) && (
-          <Text style={styles.caption}>
-            <Text style={styles.captionDisplayName}>{item.profiles?.full_name} </Text>
-            {item.caption}
-          </Text>
-        )}
-        {item.comments_count > 0 && (
-          <TouchableOpacity onPress={() => openComments(item)}>
-            <Text style={styles.viewComments}>View all {item.comments_count} comments</Text>
-          </TouchableOpacity>
-        )}
+        {item.total_likes > 0 && <Text style={styles.likesText}>Liked by <Text style={styles.boldText}>{item.first_liker || 'someone'}</Text>{item.total_likes > 1 && ` and ${item.total_likes - 1} others`}</Text>}
+        {item.caption && item.media && item.media.length > 0 && <Text style={styles.caption}><Text style={styles.captionDisplayName}>{item.profiles?.full_name} </Text>{item.caption}</Text>}
+        {item.comments_count > 0 && <TouchableOpacity onPress={() => openComments(item)}><Text style={styles.viewComments}>View all {item.comments_count} comments</Text></TouchableOpacity>}
         <Text style={styles.timestamp}>{getTimeAgo(item.created_at)}</Text>
       </View>
     </View>
   );
 
-  const renderComment = ({ item }: { item: any }) => (
-    <View style={[styles.commentItem, item.parent_id && styles.replyItem]}>
-      <TouchableOpacity onPress={() => handleProfileClick(item.user_id)}>
-        <Image
-          source={{
-            uri: item.profiles?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.profiles?.full_name || 'User')}&background=6366f1&color=fff`,
+  const renderComment = ({ item }: { item: any }) => {
+    if (item.isViewMore) {
+      return (
+        <TouchableOpacity 
+          style={styles.viewMoreButton}
+          onPress={() => {
+            setExpandedComments(prev => {
+              const newSet = new Set(prev);
+              item.isExpanded ? newSet.delete(item.parentId) : newSet.add(item.parentId);
+              return newSet;
+            });
           }}
-          style={styles.commentAvatar}
-        />
-      </TouchableOpacity>
-      <View style={styles.commentContent}>
-        <View style={styles.commentHeader}>
-          <Text style={styles.commentUsername}>{item.profiles?.full_name}</Text>
-          <Text style={styles.commentTime}>{getTimeAgo(item.created_at)}</Text>
-        </View>
-        <Text style={styles.commentText}>{item.content}</Text>
-        <View style={styles.commentActions}>
-          <TouchableOpacity onPress={() => handleCommentLike(item.id)}>
-            <Text style={styles.commentActionText}>
-              {commentLikes.has(item.id) ? 'Unlike' : 'Like'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setReplyTo(item)}>
-            <Text style={styles.commentActionText}>Reply</Text>
-          </TouchableOpacity>
-          {item.likes_count > 0 && (
-            <Text style={styles.commentLikes}>{item.likes_count} likes</Text>
-          )}
-        </View>
-      </View>
-    </View>
-  );
+        >
+          <Text style={styles.viewMoreText}>{item.isExpanded ? 'View less' : `View ${item.remainingCount} more replies`}</Text>
+        </TouchableOpacity>
+      );
+    }
 
-  if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FFFFFF" />
+      <View style={[styles.commentItem, item.isReply && styles.replyItem]}>
+        <TouchableOpacity onPress={() => handleProfileClick(item.user_id)}><Image source={{ uri: item.profiles?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.profiles?.full_name || 'User')}&background=6366f1&color=fff` }} style={styles.commentAvatar} /></TouchableOpacity>
+        <View style={styles.commentContent}>
+          <View style={styles.commentHeader}>
+            <Text style={styles.commentUsername}>{item.profiles?.full_name}</Text>
+            <Text style={styles.commentTime}>{getTimeAgo(item.created_at)}</Text>
+          </View>
+          <Text style={styles.commentText}>{item.content}</Text>
+          <View style={styles.commentActions}>
+            <TouchableOpacity onPress={() => handleCommentLike(item.id, 'like')} style={styles.commentLikeButton}><Ionicons name={commentLikes.has(item.id) ? 'thumbs-up' : 'thumbs-up-outline'} size={16} color={commentLikes.has(item.id) ? '#6366f1' : 'rgba(255,255,255,0.5)'} /></TouchableOpacity>
+            <TouchableOpacity onPress={() => handleCommentLike(item.id, 'dislike')} style={styles.commentLikeButton}><Ionicons name={commentDislikes.has(item.id) ? 'thumbs-down' : 'thumbs-down-outline'} size={16} color={commentDislikes.has(item.id) ? '#FF3B30' : 'rgba(255,255,255,0.5)'} /></TouchableOpacity>
+            <TouchableOpacity onPress={() => setReplyTo(item)}><Text style={styles.commentActionText}>Reply</Text></TouchableOpacity>
+          </View>
+        </View>
       </View>
     );
-  }
+  };
+
+  if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color="#FFFFFF" /></View>;
 
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
         <Text style={styles.logo}>Framez</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={() => setMessagingModal(true)}
-          >
-            <Ionicons name="chatbubbles-outline" size={28} color="#FFFFFF" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={() => {
-              markNotificationsRead();
-              router.push('/(tabs)/notifications');
-            }}
-          >
+          <TouchableOpacity style={styles.headerButton} onPress={() => setMessagingModal(true)}><Ionicons name="chatbubbles-outline" size={28} color="#FFFFFF" /></TouchableOpacity>
+          <TouchableOpacity style={styles.headerButton} onPress={() => { markNotificationsRead(); router.push('/(tabs)/notifications'); }}>
             <Ionicons name="notifications-outline" size={28} color="#FFFFFF" />
-            {unreadCount > 0 && (
-              <View style={styles.notificationBadge}>
-                <Text style={styles.notificationBadgeText}>{unreadCount}</Text>
-              </View>
-            )}
+            {unreadCount > 0 && <View style={styles.notificationBadge}><Text style={styles.notificationBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text></View>}
           </TouchableOpacity>
         </View>
-</Animated.View>
+      </Animated.View>
 
-      <AnimatedFlatList
-        data={posts}
-        renderItem={renderPost}
-        keyExtractor={(item: any) => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFFFFF" />}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-        onScroll={handleScroll}
+      <AnimatedFlatList 
+        data={posts} 
+        renderItem={renderPost} 
+        keyExtractor={(item: any) => `post-${item.id}`}
+        maintainVisibleContentPosition={{
+          minIndexForVisible: 0,
+          autoscrollToTopThreshold: 10,
+        }}
+        removeClippedSubviews={false}
+        windowSize={10}
+        maxToRenderPerBatch={5}
+        updateCellsBatchingPeriod={50}
+        initialNumToRender={5}
+        getItemLayout={(data, index) => ({
+          length: width + 200,
+          offset: (width + 200) * index,
+          index,
+        })}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFFFFF" />} 
+        showsVerticalScrollIndicator={false} 
+        contentContainerStyle={styles.listContent} 
+        onScroll={handleScroll} 
         scrollEventThrottle={16}
         ListFooterComponent={
           !hasMorePosts && posts.length > 0 ? (
-            <View style={styles.endMessage}>
-              <Text style={styles.endMessageText}>No more posts</Text>
+            <View style={styles.endOfFeed}>
+              <Text style={styles.endOfFeedText}>No more posts</Text>
             </View>
           ) : null
         }
@@ -685,39 +725,36 @@ export default function FeedScreen() {
       <Modal visible={menuModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.menuCard}>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => {
-                setMenuModal(false);
-                if (selectedPost) handleProfileClick(selectedPost.user_id);
-              }}
-            >
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuModal(false); if (selectedPost) handleProfileClick(selectedPost.user_id); }}>
               <Ionicons name="person-outline" size={24} color="#FFFFFF" />
               <Text style={styles.menuItemText}>View Profile</Text>
             </TouchableOpacity>
-            
-            {selectedPost && selectedPost.user_id !== currentUser?.id && (
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  if (selectedPost) {
-                    handleFollow(selectedPost.user_id);
-                    setMenuModal(false);
+            {selectedPost && selectedPost.user_id === currentUser?.id ? (
+              <>
+                <TouchableOpacity style={styles.menuItem} onPress={handleEditPost}>
+                  <Ionicons name="create-outline" size={24} color="#FFFFFF" />
+                  <Text style={styles.menuItemText}>Edit Post</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={handleDeletePost} disabled={deletingPost}>
+                  <Ionicons name="trash-outline" size={24} color="#FF3B30" />
+                  <Text style={[styles.menuItemText, { color: '#FF3B30' }]}>{deletingPost ? 'Deleting...' : 'Delete Post'}</Text>
+                </TouchableOpacity>
+              </>
+            ) : selectedPost && selectedPost.user_id !== currentUser?.id && (
+              <TouchableOpacity 
+                style={styles.menuItem} 
+                onPress={() => { 
+                  if (selectedPost) { 
+                    handleFollow(selectedPost.user_id); 
+                    setMenuModal(false); 
                   }
-                }}
+                }} 
                 disabled={followingInProgress.has(selectedPost.user_id)}
               >
-                <Ionicons 
-                  name={following.has(selectedPost.user_id) ? "person-remove-outline" : "person-add-outline"} 
-                  size={24} 
-                  color="#FFFFFF" 
-                />
-                <Text style={styles.menuItemText}>
-                  {following.has(selectedPost.user_id) ? 'Unfollow' : 'Follow'}
-                </Text>
+                <Ionicons name={following.has(selectedPost.user_id) ? "person-remove-outline" : "person-add-outline"} size={24} color="#FFFFFF" />
+                <Text style={styles.menuItemText}>{following.has(selectedPost.user_id) ? 'Unfollow' : 'Follow'}</Text>
               </TouchableOpacity>
             )}
-            
             <TouchableOpacity style={[styles.menuItem, styles.menuItemCancel]} onPress={() => setMenuModal(false)}>
               <Text style={styles.menuItemCancelText}>Cancel</Text>
             </TouchableOpacity>
@@ -725,75 +762,85 @@ export default function FeedScreen() {
         </View>
       </Modal>
 
+      <Modal visible={editModal} animationType="slide">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.editModalContainer}>
+          <View style={styles.editModalHeader}>
+            <TouchableOpacity onPress={() => { setEditModal(false); setEditCaption(''); }}>
+              <Text style={styles.editModalCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.editModalTitle}>Edit Post</Text>
+            <TouchableOpacity onPress={handleUpdatePost} disabled={updatingPost || !editCaption.trim()}>
+              {updatingPost ? (
+                <ActivityIndicator size="small" color="#6366f1" />
+              ) : (
+                <Text style={[styles.editModalSave, !editCaption.trim() && styles.editModalSaveDisabled]}>Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          <View style={styles.editModalContent}>
+            <TextInput 
+              style={styles.editModalInput} 
+              placeholder="Write a caption..." 
+              placeholderTextColor="#666" 
+              value={editCaption} 
+              onChangeText={setEditCaption} 
+              multiline 
+              autoFocus 
+            />
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <Modal visible={commentsModal} animationType="slide">
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.commentsModalContainer}
-        >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.commentsModalContainer}>
           <View style={styles.commentsHeader}>
             <Text style={styles.commentsTitle}>Comments</Text>
-            <TouchableOpacity onPress={() => {
-              setCommentsModal(false);
-              setReplyTo(null);
-              setCommentText('');
-            }}>
+            <TouchableOpacity onPress={() => { setCommentsModal(false); setReplyTo(null); setCommentText(''); setExpandedComments(new Set()); }}>
               <Ionicons name="close" size={28} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
-
           {loadingComments ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#FFFFFF" />
             </View>
           ) : (
-            <FlatList
-              data={comments}
-              renderItem={renderComment}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.commentsList}
-              showsVerticalScrollIndicator={false}
+            <FlatList 
+              data={organizeComments(comments)} 
+              renderItem={renderComment} 
+              keyExtractor={(item, index) => item.id || `view-more-${index}`} 
+              contentContainerStyle={styles.commentsList} 
+              showsVerticalScrollIndicator={false} 
               ListEmptyComponent={
                 <View style={styles.emptyComments}>
                   <Ionicons name="chatbubble-outline" size={48} color="#666" />
                   <Text style={styles.emptyCommentsText}>No comments yet</Text>
                 </View>
-              }
+              } 
             />
           )}
-
           <View style={styles.commentInputContainer}>
             {replyTo && (
               <View style={styles.replyBanner}>
-                <Text style={styles.replyBannerText}>
-                  Replying to {replyTo.profiles?.full_name}
-                </Text>
+                <Text style={styles.replyBannerText}>Replying to {replyTo.profiles?.full_name}</Text>
                 <TouchableOpacity onPress={() => setReplyTo(null)}>
                   <Ionicons name="close-circle" size={20} color="#FFFFFF" />
                 </TouchableOpacity>
               </View>
             )}
             <View style={styles.commentInputRow}>
-              <TextInput
-                style={styles.commentInput}
-                placeholder="Add a comment..."
-                placeholderTextColor="#666"
-                value={commentText}
-                onChangeText={setCommentText}
-                multiline
+              <TextInput 
+                style={styles.commentInput} 
+                placeholder="Add a comment..." 
+                placeholderTextColor="#666" 
+                value={commentText} 
+                onChangeText={setCommentText} 
+                multiline 
               />
-              <TouchableOpacity
-                onPress={handleAddComment}
-                disabled={!commentText.trim() || postingComment}
-                style={styles.sendButton}
-              >
+              <TouchableOpacity onPress={handleAddComment} disabled={!commentText.trim() || postingComment} style={styles.sendButton}>
                 {postingComment ? (
                   <ActivityIndicator size="small" color="#6366f1" />
                 ) : (
-                  <Ionicons
-                    name="send"
-                    size={24}
-                    color={commentText.trim() ? '#6366f1' : '#666'}
-                  />
+                  <Ionicons name="send" size={24} color={commentText.trim() ? '#6366f1' : '#666'} />
                 )}
               </TouchableOpacity>
             </View>
@@ -811,15 +858,21 @@ const styles = StyleSheet.create({
   logo: { fontSize: 32, fontWeight: '400', color: '#FFFFFF', letterSpacing: 2, fontFamily: Platform.OS === 'ios' ? 'Snell Roundhand' : 'cursive' },
   headerActions: { flexDirection: 'row', gap: 16 },
   headerButton: { padding: 4, position: 'relative' },
-  notificationBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: '#FF3B30', borderRadius: 10, minWidth: 20, height: 20, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
-  notificationBadgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  notificationBadge: { position: 'absolute', top: -4, right: -4, backgroundColor: '#6366f1', borderRadius: 10, minWidth: 20, height: 20, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 5, borderWidth: 2, borderColor: '#000', zIndex: 10 },
+  notificationBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
   listContent: { paddingTop: 80, paddingBottom: 20 },
   postContainer: { marginBottom: 24 },
   postHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
   userInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)' },
   displayName: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  mediaContainer: { width: width, height: width, position: 'relative' },
+  mediaItem: { width: width, height: width },
   postImage: { width: width, height: width, backgroundColor: 'rgba(255, 255, 255, 0.05)' },
+  postVideo: { width: width, height: width, backgroundColor: '#000' },
+  paginationDots: { position: 'absolute', bottom: 16, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255, 255, 255, 0.5)' },
+  activeDot: { backgroundColor: '#FFFFFF', width: 8, height: 8, borderRadius: 4 },
   textOnlyPost: { paddingHorizontal: 16, paddingVertical: 32, backgroundColor: '#0a0a0a', marginHorizontal: 16, borderRadius: 12, marginTop: 8 },
   textOnlyCaption: { color: '#FFFFFF', fontSize: 16, lineHeight: 24 },
   postActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
@@ -832,8 +885,8 @@ const styles = StyleSheet.create({
   captionDisplayName: { fontWeight: '700' },
   viewComments: { color: 'rgba(255, 255, 255, 0.5)', fontSize: 14, marginTop: 2 },
   timestamp: { color: 'rgba(255, 255, 255, 0.4)', fontSize: 12, marginTop: 4 },
-  endMessage: { paddingVertical: 20, alignItems: 'center' },
-  endMessageText: { color: 'rgba(255, 255, 255, 0.4)', fontSize: 14 },
+  endOfFeed: { paddingVertical: 20, alignItems: 'center', marginTop: 10 },
+  endOfFeedText: { color: '#666', fontSize: 13, fontWeight: '500' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   comingSoonCard: { backgroundColor: '#1a1a1a', borderRadius: 20, padding: 32, alignItems: 'center', width: '100%', maxWidth: 300, borderWidth: 1, borderColor: 'rgba(99,102,241,0.3)' },
   comingSoonTitle: { fontSize: 22, fontWeight: '700', color: '#FFFFFF', marginTop: 16, marginBottom: 8 },
@@ -845,21 +898,31 @@ const styles = StyleSheet.create({
   menuItemText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   menuItemCancel: { borderBottomWidth: 0, justifyContent: 'center' },
   menuItemCancelText: { color: 'rgba(255,255,255,0.5)', fontSize: 16, fontWeight: '600', textAlign: 'center', width: '100%' },
+  editModalContainer: { flex: 1, backgroundColor: '#000' },
+  editModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' },
+  editModalCancel: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  editModalTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  editModalSave: { color: '#6366f1', fontSize: 16, fontWeight: '700' },
+  editModalSaveDisabled: { color: '#666' },
+  editModalContent: { flex: 1, padding: 16 },
+  editModalInput: { color: '#FFFFFF', fontSize: 16, lineHeight: 24, textAlignVertical: 'top' },
   commentsModalContainer: { flex: 1, backgroundColor: '#000' },
   commentsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' },
   commentsTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   commentsList: { padding: 16 },
   commentItem: { flexDirection: 'row', marginBottom: 16, gap: 12 },
-  replyItem: { marginLeft: 40 },
+  replyItem: { marginLeft: 48, marginTop: 8 },
   commentAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   commentContent: { flex: 1 },
   commentHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   commentUsername: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   commentTime: { color: 'rgba(255,255,255,0.4)', fontSize: 12 },
   commentText: { color: '#FFFFFF', fontSize: 14, lineHeight: 20, marginBottom: 6 },
-  commentActions: { flexDirection: 'row', gap: 16 },
+  commentActions: { flexDirection: 'row', gap: 16, alignItems: 'center' },
+  commentLikeButton: { padding: 4 },
   commentActionText: { color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '600' },
-  commentLikes: { color: 'rgba(255,255,255,0.4)', fontSize: 13 },
+  viewMoreButton: { marginLeft: 48, marginVertical: 8 },
+  viewMoreText: { color: '#6366f1', fontSize: 13, fontWeight: '600' },
   emptyComments: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
   emptyCommentsText: { color: '#666', fontSize: 16, marginTop: 12 },
   commentInputContainer: { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', backgroundColor: '#000' },
@@ -869,4 +932,4 @@ const styles = StyleSheet.create({
   commentInput: { flex: 1, color: '#FFFFFF', fontSize: 15, maxHeight: 100 },
   sendButton: { padding: 8 },
 });
- 
+

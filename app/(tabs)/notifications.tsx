@@ -11,7 +11,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
-import { supabase } from '../../lib/supabase';
+import { supabase } from  '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function NotificationsScreen() {
