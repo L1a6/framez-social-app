@@ -33,6 +33,9 @@
       "expo-router",
       "expo-video"
     ],
+    "updates": {
+      "enabled": false
+    },
     "extra": {
       "router": {},
       "eas": {

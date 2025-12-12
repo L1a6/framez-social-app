@@ -435,7 +435,7 @@ export default function FeedScreen() {
           } finally {
             setDeletingPost(false);
           }
-        }
+        } 
       }
     ]);
   };
