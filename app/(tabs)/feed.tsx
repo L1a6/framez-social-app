@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -87,6 +87,60 @@ const MediaCarousel = React.memo(({ media }: {
   );
 });
 
+// Memoized Post Item Component - prevents re-render when parent state changes
+const PostItem = React.memo(({ 
+  item, 
+  onLike, 
+  onComment, 
+  onMenu, 
+  onProfileClick,
+  onShare,
+  getTimeAgo 
+}: {
+  item: any;
+  onLike: (id: string) => void;
+  onComment: (post: any) => void;
+  onMenu: (post: any) => void;
+  onProfileClick: (userId: string) => void;
+  onShare: () => void;
+  getTimeAgo: (date: string) => string;
+}) => {
+  return (
+    <View style={styles.postContainer}>
+      <View style={styles.postHeader}>
+        <TouchableOpacity style={styles.userInfo} onPress={() => onProfileClick(item.user_id)}>
+          <Image source={{ uri: item.profiles?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.profiles?.full_name || 'User')}&background=6366f1&color=fff` }} style={styles.avatar} />
+          <Text style={styles.displayName}>{item.profiles?.full_name}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => onMenu(item)}><Ionicons name="ellipsis-horizontal" size={24} color="#FFFFFF" /></TouchableOpacity>
+      </View>
+      {item.media && item.media.length > 0 ? <MediaCarousel media={item.media} /> : item.caption ? <View style={styles.textOnlyPost}><Text style={styles.textOnlyCaption}>{item.caption}</Text></View> : null}
+      <View style={styles.postActions}>
+        <View style={styles.leftActions}>
+          <TouchableOpacity onPress={() => onLike(item.id)} style={styles.actionButton}><Ionicons name={item.is_liked ? 'heart' : 'heart-outline'} size={24} color={item.is_liked ? '#FF3B30' : '#FFFFFF'} /></TouchableOpacity>
+          <TouchableOpacity onPress={() => onComment(item)} style={styles.actionButton}><Ionicons name="chatbubble-outline" size={22} color="#FFFFFF" /></TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton} onPress={onShare}><Ionicons name="paper-plane-outline" size={22} color="#FFFFFF" /></TouchableOpacity>
+        </View>
+      </View>
+      <View style={styles.postInfo}>
+        {item.total_likes > 0 && <Text style={styles.likesText}>Liked by <Text style={styles.boldText}>{item.first_liker || 'someone'}</Text>{item.total_likes > 1 && ` and ${item.total_likes - 1} others`}</Text>}
+        {item.caption && item.media && item.media.length > 0 && <Text style={styles.caption}><Text style={styles.captionDisplayName}>{item.profiles?.full_name} </Text>{item.caption}</Text>}
+        {item.comments_count > 0 && <TouchableOpacity onPress={() => onComment(item)}><Text style={styles.viewComments}>View all {item.comments_count} comments</Text></TouchableOpacity>}
+        <Text style={styles.timestamp}>{getTimeAgo(item.created_at)}</Text>
+      </View>
+    </View>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison - only re-render if these specific props change
+  return (
+    prevProps.item.id === nextProps.item.id &&
+    prevProps.item.is_liked === nextProps.item.is_liked &&
+    prevProps.item.total_likes === nextProps.item.total_likes &&
+    prevProps.item.comments_count === nextProps.item.comments_count &&
+    prevProps.item.caption === nextProps.item.caption
+  );
+});
+
 export default function FeedScreen() {
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,7 +150,6 @@ export default function FeedScreen() {
   const [menuModal, setMenuModal] = useState(false);
   const [commentsModal, setCommentsModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
-  const [selectedPost, setSelectedPost] = useState<any>(null);
   const [editCaption, setEditCaption] = useState('');
   const [updatingPost, setUpdatingPost] = useState(false);
   const [following, setFollowing] = useState<Set<string>>(new Set());
@@ -112,11 +165,21 @@ export default function FeedScreen() {
   const [deletingPost, setDeletingPost] = useState(false);
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   
+  // Use refs for modal data to prevent re-renders of the feed
+  const selectedPostRef = useRef<any>(null);
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  
   const scrollY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const [followingInProgress, setFollowingInProgress] = useState<Set<string>>(new Set());
   const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+  // Get selected post from ref or posts array
+  const selectedPost = useMemo(() => {
+    if (!selectedPostId) return null;
+    return posts.find(p => p.id === selectedPostId) || selectedPostRef.current;
+  }, [selectedPostId, posts]);
 
   useEffect(() => {
     getCurrentUser();
@@ -265,7 +328,38 @@ export default function FeedScreen() {
         };
       });
 
-      setPosts(postsWithData);
+      // Feed Algorithm: Score posts based on engagement + recency + following
+      const scoredPosts = postsWithData.map(post => {
+        const ageInHours = (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60);
+        const isFromFollowing = following.has(post.user_id);
+        const isOwnPost = post.user_id === currentUser.id;
+        
+        // Engagement score (likes + comments weighted)
+        const engagementScore = (post.total_likes * 1) + ((post.comments_count || 0) * 2);
+        
+        // Recency decay - newer posts score higher
+        const recencyScore = Math.max(0, 100 - (ageInHours * 2));
+        
+        // Boost posts from people you follow
+        const followingBoost = isFromFollowing ? 50 : 0;
+        
+        // Slight boost for own posts so you see them
+        const ownPostBoost = isOwnPost ? 30 : 0;
+        
+        // Final score
+        const score = engagementScore + recencyScore + followingBoost + ownPostBoost;
+        
+        return { ...post, _feedScore: score };
+      });
+      
+      // Sort by score (highest first), but keep some randomness for variety
+      scoredPosts.sort((a, b) => {
+        // Add small random factor to prevent exact same order every time
+        const randomFactor = (Math.random() - 0.5) * 10;
+        return (b._feedScore + randomFactor) - (a._feedScore + randomFactor);
+      });
+
+      setPosts(scoredPosts);
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
@@ -277,9 +371,14 @@ export default function FeedScreen() {
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchPosts();
-  }, [currentUser]);
+  }, [currentUser, following]);
 
-  const getTimeAgo = (dateString: string) => {
+  // Memoized callbacks for PostItem
+  const handleLikeMemo = useCallback((postId: string) => handleLike(postId), [currentUser, posts]);
+  const handleProfileClickMemo = useCallback((userId: string) => handleProfileClick(userId), [currentUser]);
+  const handleShareMemo = useCallback(() => setMessagingModal(true), []);
+
+  const getTimeAgo = useCallback((dateString: string) => {
     const now = new Date();
     const past = new Date(dateString);
     const diffInSeconds = Math.floor((now.getTime() - past.getTime()) / 1000);
@@ -292,7 +391,7 @@ export default function FeedScreen() {
     if (diffInDays < 7) return `${diffInDays}d`;
     const diffInWeeks = Math.floor(diffInDays / 7);
     return `${diffInWeeks}w`;
-  };
+  }, []);
 
   const handleLike = async (postId: string) => {
     if (!currentUser) {
@@ -394,7 +493,8 @@ export default function FeedScreen() {
       if (error) throw error;
       setPosts(prevPosts => prevPosts.map(p => p.id === selectedPost.id ? { ...p, caption: editCaption.trim() } : p));
       setEditModal(false);
-      setSelectedPost(null);
+      selectedPostRef.current = null;
+      setSelectedPostId(null);
       setEditCaption('');
       Alert.alert('Success', 'Post updated successfully');
     } catch (error) {
@@ -415,19 +515,21 @@ export default function FeedScreen() {
         onPress: async () => {
           setDeletingPost(true);
           setMenuModal(false);
+          const postToDelete = selectedPost;
           try {
-            await supabase.from('notifications').delete().eq('entity_id', selectedPost.id);
-            const { data: commentIds } = await supabase.from('comments').select('id').eq('post_id', selectedPost.id);
+            await supabase.from('notifications').delete().eq('entity_id', postToDelete.id);
+            const { data: commentIds } = await supabase.from('comments').select('id').eq('post_id', postToDelete.id);
             if (commentIds && commentIds.length > 0) {
               const ids = commentIds.map(c => c.id);
               await supabase.from('comment_likes').delete().in('comment_id', ids);
               await supabase.from('notifications').delete().in('entity_id', ids);
             }
-            await supabase.from('comments').delete().eq('post_id', selectedPost.id);
-            await supabase.from('likes').delete().eq('post_id', selectedPost.id);
-            await supabase.from('posts').delete().eq('id', selectedPost.id);
-            setPosts(prevPosts => prevPosts.filter(p => p.id !== selectedPost.id));
-            setSelectedPost(null);
+            await supabase.from('comments').delete().eq('post_id', postToDelete.id);
+            await supabase.from('likes').delete().eq('post_id', postToDelete.id);
+            await supabase.from('posts').delete().eq('id', postToDelete.id);
+            setPosts(prevPosts => prevPosts.filter(p => p.id !== postToDelete.id));
+            selectedPostRef.current = null;
+            setSelectedPostId(null);
             Alert.alert('Success', 'Post deleted successfully');
           } catch (error) {
             console.error('Error deleting post:', error);
@@ -440,8 +542,18 @@ export default function FeedScreen() {
     ]);
   };
 
-  const openMenu = (post: any) => { setSelectedPost(post); setMenuModal(true); };
-  const openComments = (post: any) => { setSelectedPost(post); setCommentsModal(true); fetchComments(post.id); };
+  const openMenu = useCallback((post: any) => { 
+    selectedPostRef.current = post;
+    setSelectedPostId(post.id);
+    setMenuModal(true); 
+  }, []);
+  
+  const openComments = useCallback((post: any) => { 
+    selectedPostRef.current = post;
+    setSelectedPostId(post.id);
+    setCommentsModal(true); 
+    fetchComments(post.id); 
+  }, []);
 
   const fetchComments = async (postId: string) => {
     setLoadingComments(true);
@@ -599,31 +711,17 @@ export default function FeedScreen() {
     return organized;
   };
 
-  const renderPost = ({ item }: { item: any }) => (
-    <View style={styles.postContainer}>
-      <View style={styles.postHeader}>
-        <TouchableOpacity style={styles.userInfo} onPress={() => handleProfileClick(item.user_id)}>
-          <Image source={{ uri: item.profiles?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.profiles?.full_name || 'User')}&background=6366f1&color=fff` }} style={styles.avatar} />
-          <Text style={styles.displayName}>{item.profiles?.full_name}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => openMenu(item)}><Ionicons name="ellipsis-horizontal" size={24} color="#FFFFFF" /></TouchableOpacity>
-      </View>
-      {item.media && item.media.length > 0 ? <MediaCarousel media={item.media} /> : item.caption ? <View style={styles.textOnlyPost}><Text style={styles.textOnlyCaption}>{item.caption}</Text></View> : null}
-      <View style={styles.postActions}>
-        <View style={styles.leftActions}>
-          <TouchableOpacity onPress={() => handleLike(item.id)} style={styles.actionButton}><Ionicons name={item.is_liked ? 'heart' : 'heart-outline'} size={24} color={item.is_liked ? '#FF3B30' : '#FFFFFF'} /></TouchableOpacity>
-          <TouchableOpacity onPress={() => openComments(item)} style={styles.actionButton}><Ionicons name="chatbubble-outline" size={22} color="#FFFFFF" /></TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={() => setMessagingModal(true)}><Ionicons name="paper-plane-outline" size={22} color="#FFFFFF" /></TouchableOpacity>
-        </View>
-      </View>
-      <View style={styles.postInfo}>
-        {item.total_likes > 0 && <Text style={styles.likesText}>Liked by <Text style={styles.boldText}>{item.first_liker || 'someone'}</Text>{item.total_likes > 1 && ` and ${item.total_likes - 1} others`}</Text>}
-        {item.caption && item.media && item.media.length > 0 && <Text style={styles.caption}><Text style={styles.captionDisplayName}>{item.profiles?.full_name} </Text>{item.caption}</Text>}
-        {item.comments_count > 0 && <TouchableOpacity onPress={() => openComments(item)}><Text style={styles.viewComments}>View all {item.comments_count} comments</Text></TouchableOpacity>}
-        <Text style={styles.timestamp}>{getTimeAgo(item.created_at)}</Text>
-      </View>
-    </View>
-  );
+  const renderPost = useCallback(({ item }: { item: any }) => (
+    <PostItem
+      item={item}
+      onLike={handleLikeMemo}
+      onComment={openComments}
+      onMenu={openMenu}
+      onProfileClick={handleProfileClickMemo}
+      onShare={handleShareMemo}
+      getTimeAgo={getTimeAgo}
+    />
+  ), [handleLikeMemo, openComments, openMenu, handleProfileClickMemo, handleShareMemo, getTimeAgo]);
 
   const renderComment = ({ item }: { item: any }) => {
     if (item.isViewMore) {
@@ -755,7 +853,13 @@ export default function FeedScreen() {
                 <Text style={styles.menuItemText}>{following.has(selectedPost.user_id) ? 'Unfollow' : 'Follow'}</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={[styles.menuItem, styles.menuItemCancel]} onPress={() => setMenuModal(false)}>
+            <TouchableOpacity style={[styles.menuItem, styles.menuItemCancel]} onPress={() => { 
+              setMenuModal(false);
+              setTimeout(() => {
+                selectedPostRef.current = null;
+                setSelectedPostId(null);
+              }, 300);
+            }}>
               <Text style={styles.menuItemCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
@@ -795,7 +899,17 @@ export default function FeedScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.commentsModalContainer}>
           <View style={styles.commentsHeader}>
             <Text style={styles.commentsTitle}>Comments</Text>
-            <TouchableOpacity onPress={() => { setCommentsModal(false); setReplyTo(null); setCommentText(''); setExpandedComments(new Set()); }}>
+            <TouchableOpacity onPress={() => { 
+              setCommentsModal(false); 
+              setReplyTo(null); 
+              setCommentText(''); 
+              setExpandedComments(new Set()); 
+              // Clear after modal closes to prevent flash
+              setTimeout(() => {
+                selectedPostRef.current = null;
+                setSelectedPostId(null);
+              }, 300);
+            }}>
               <Ionicons name="close" size={28} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
