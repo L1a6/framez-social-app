@@ -34,7 +34,7 @@
       "expo-video"
     ],
     "updates": {
-      "enabled": true,
+      "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/b4b289ea-b213-42e2-a999-b0ea74c13ed0"
     },
     "runtimeVersion": {
