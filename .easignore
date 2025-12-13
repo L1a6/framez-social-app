@@ -1,0 +1,36 @@
+# EAS Build Ignore File
+# Excludes files from being uploaded to EAS Build
+
+# Build caches
+android/build/
+android/.gradle/
+android/app/build/
+android/.idea/
+
+# iOS
+ios/build/
+ios/Pods/
+
+# Node modules (EAS installs fresh)
+node_modules/
+
+# Expo cache
+.expo/
+
+# Git
+.git/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.*
+
+# Test files
+__tests__/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
