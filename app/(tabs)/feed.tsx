@@ -107,6 +107,11 @@ const PostItem = React.memo(({
   onShare: () => void;
   getTimeAgo: (date: string) => string;
 }) => {
+  // Instagram style: Skip posts without media
+  if (!item.media || item.media.length === 0) {
+    return null;
+  }
+  
   return (
     <View style={styles.postContainer}>
       <View style={styles.postHeader}>
@@ -116,7 +121,7 @@ const PostItem = React.memo(({
         </TouchableOpacity>
         <TouchableOpacity onPress={() => onMenu(item)}><Ionicons name="ellipsis-horizontal" size={24} color="#FFFFFF" /></TouchableOpacity>
       </View>
-      {item.media && item.media.length > 0 ? <MediaCarousel media={item.media} /> : item.caption ? <View style={styles.textOnlyPost}><Text style={styles.textOnlyCaption}>{item.caption}</Text></View> : null}
+      <MediaCarousel media={item.media} />
       <View style={styles.postActions}>
         <View style={styles.leftActions}>
           <TouchableOpacity onPress={() => onLike(item.id)} style={styles.actionButton}><Ionicons name={item.is_liked ? 'heart' : 'heart-outline'} size={24} color={item.is_liked ? '#FF3B30' : '#FFFFFF'} /></TouchableOpacity>
@@ -126,7 +131,7 @@ const PostItem = React.memo(({
       </View>
       <View style={styles.postInfo}>
         {item.total_likes > 0 && <Text style={styles.likesText}>Liked by <Text style={styles.boldText}>{item.first_liker || 'someone'}</Text>{item.total_likes > 1 && ` and ${item.total_likes - 1} others`}</Text>}
-        {item.caption && item.media && item.media.length > 0 && <Text style={styles.caption}><Text style={styles.captionDisplayName}>{item.profiles?.full_name} </Text>{item.caption}</Text>}
+        {item.caption && <Text style={styles.caption}><Text style={styles.captionDisplayName}>{item.profiles?.full_name} </Text>{item.caption}</Text>}
         {item.comments_count > 0 && <TouchableOpacity onPress={() => onComment(item)}><Text style={styles.viewComments}>View all {item.comments_count} comments</Text></TouchableOpacity>}
         <Text style={styles.timestamp}>{getTimeAgo(item.created_at)}</Text>
       </View>
@@ -1026,8 +1031,6 @@ const styles = StyleSheet.create({
   paginationDots: { position: 'absolute', bottom: 16, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255, 255, 255, 0.5)' },
   activeDot: { backgroundColor: '#FFFFFF', width: 8, height: 8, borderRadius: 4 },
-  textOnlyPost: { paddingHorizontal: 16, paddingVertical: 32, backgroundColor: '#0a0a0a', marginHorizontal: 16, borderRadius: 12, marginTop: 8 },
-  textOnlyCaption: { color: '#FFFFFF', fontSize: 16, lineHeight: 24 },
   postActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
   leftActions: { flexDirection: 'row', gap: 16 },
   actionButton: { padding: 2 },

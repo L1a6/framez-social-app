@@ -98,8 +98,9 @@ export default function CreateScreen() {
   };
 
   const handlePost = async () => {
-    if (!mediaUri && !caption.trim()) {
-      Alert.alert('Error', 'Please add an image, video, or caption');
+    // Instagram style: MUST have media, caption is optional
+    if (!mediaUri) {
+      Alert.alert('Media Required', 'Please add a photo or video to create a post');
       return;
     }
 
@@ -153,15 +154,15 @@ export default function CreateScreen() {
         <Text style={styles.headerTitle}>Create Post</Text>
         <TouchableOpacity
           onPress={handlePost}
-          disabled={loading || (!mediaUri && !caption)}
+          disabled={loading || !mediaUri}
         >
           <Text
             style={[
               styles.postButton,
-              (!mediaUri && !caption) && styles.postButtonDisabled,
+              !mediaUri && styles.postButtonDisabled,
             ]}
           >
-            {loading ? 'Posting...' : 'Post'}
+            {loading ? 'Posting...' : 'Share'}
           </Text>
         </TouchableOpacity>
       </View>
