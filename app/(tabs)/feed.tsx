@@ -21,8 +21,10 @@ import { router } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import BottomSheet, { BottomSheetFlatList, BottomSheetTextInput, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const VideoPlayer = React.memo(({ videoUrl }: { videoUrl: string }) => {
   const player = useVideoPlayer(videoUrl, player => {
@@ -148,7 +150,6 @@ export default function FeedScreen() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [messagingModal, setMessagingModal] = useState(false);
   const [menuModal, setMenuModal] = useState(false);
-  const [commentsModal, setCommentsModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editCaption, setEditCaption] = useState('');
   const [updatingPost, setUpdatingPost] = useState(false);
@@ -168,6 +169,10 @@ export default function FeedScreen() {
   // Use refs for modal data to prevent re-renders of the feed
   const selectedPostRef = useRef<any>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  
+  // Bottom sheet ref for comments - Instagram style
+  const commentsSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => ['60%', '90%'], []);
   
   const scrollY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
@@ -551,9 +556,35 @@ export default function FeedScreen() {
   const openComments = useCallback((post: any) => { 
     selectedPostRef.current = post;
     setSelectedPostId(post.id);
-    setCommentsModal(true); 
-    fetchComments(post.id); 
+    fetchComments(post.id);
+    // Open bottom sheet instead of modal - doesn't trigger re-render
+    commentsSheetRef.current?.snapToIndex(0);
   }, []);
+  
+  const closeComments = useCallback(() => {
+    commentsSheetRef.current?.close();
+    setReplyTo(null);
+    setCommentText('');
+    setExpandedComments(new Set());
+    // Don't clear selectedPost immediately - let sheet animate out first
+    setTimeout(() => {
+      selectedPostRef.current = null;
+      setSelectedPostId(null);
+    }, 300);
+  }, []);
+  
+  // Backdrop component for bottom sheet
+  const renderBackdrop = useCallback(
+    (props: any) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.7}
+      />
+    ),
+    []
+  );
 
   const fetchComments = async (postId: string) => {
     setLoadingComments(true);
@@ -763,7 +794,7 @@ export default function FeedScreen() {
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color="#FFFFFF" /></View>;
 
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={styles.container}>
       <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
         <Text style={styles.logo}>Framez</Text>
         <View style={styles.headerActions}>
@@ -779,20 +810,11 @@ export default function FeedScreen() {
         data={posts} 
         renderItem={renderPost} 
         keyExtractor={(item: any) => `post-${item.id}`}
-        maintainVisibleContentPosition={{
-          minIndexForVisible: 0,
-          autoscrollToTopThreshold: 10,
-        }}
-        removeClippedSubviews={false}
-        windowSize={10}
-        maxToRenderPerBatch={5}
-        updateCellsBatchingPeriod={50}
-        initialNumToRender={5}
-        getItemLayout={(data, index) => ({
-          length: width + 200,
-          offset: (width + 200) * index,
-          index,
-        })}
+        removeClippedSubviews={true}
+        windowSize={5}
+        maxToRenderPerBatch={3}
+        updateCellsBatchingPeriod={100}
+        initialNumToRender={3}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFFFFF" />} 
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={styles.listContent} 
@@ -895,79 +917,96 @@ export default function FeedScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={commentsModal} animationType="slide">
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.commentsModalContainer}>
-          <View style={styles.commentsHeader}>
-            <Text style={styles.commentsTitle}>Comments</Text>
-            <TouchableOpacity onPress={() => { 
-              setCommentsModal(false); 
-              setReplyTo(null); 
-              setCommentText(''); 
-              setExpandedComments(new Set()); 
-              // Clear after modal closes to prevent flash
-              setTimeout(() => {
-                selectedPostRef.current = null;
-                setSelectedPostId(null);
-              }, 300);
-            }}>
-              <Ionicons name="close" size={28} color="#FFFFFF" />
-            </TouchableOpacity>
+      {/* Comments Bottom Sheet - Instagram Style */}
+      <BottomSheet
+        ref={commentsSheetRef}
+        index={-1}
+        snapPoints={snapPoints}
+        enablePanDownToClose={true}
+        backdropComponent={renderBackdrop}
+        backgroundStyle={styles.bottomSheetBackground}
+        handleIndicatorStyle={styles.bottomSheetIndicator}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        onChange={(index) => {
+          if (index === -1) {
+            // Sheet closed
+            setReplyTo(null);
+            setCommentText('');
+            setExpandedComments(new Set());
+            setTimeout(() => {
+              selectedPostRef.current = null;
+              setSelectedPostId(null);
+            }, 100);
+          }
+        }}
+      >
+        <View style={styles.commentsSheetHeader}>
+          <Text style={styles.commentsTitle}>Comments</Text>
+          <TouchableOpacity onPress={closeComments}>
+            <Ionicons name="close" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+        
+        {loadingComments ? (
+          <View style={styles.loadingComments}>
+            <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
-          {loadingComments ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#FFFFFF" />
-            </View>
-          ) : (
-            <FlatList 
-              data={organizeComments(comments)} 
-              renderItem={renderComment} 
-              keyExtractor={(item, index) => item.id || `view-more-${index}`} 
-              contentContainerStyle={styles.commentsList} 
-              showsVerticalScrollIndicator={false} 
-              ListEmptyComponent={
-                <View style={styles.emptyComments}>
-                  <Ionicons name="chatbubble-outline" size={48} color="#666" />
-                  <Text style={styles.emptyCommentsText}>No comments yet</Text>
-                </View>
-              } 
-            />
-          )}
-          <View style={styles.commentInputContainer}>
-            {replyTo && (
-              <View style={styles.replyBanner}>
-                <Text style={styles.replyBannerText}>Replying to {replyTo.profiles?.full_name}</Text>
-                <TouchableOpacity onPress={() => setReplyTo(null)}>
-                  <Ionicons name="close-circle" size={20} color="#FFFFFF" />
-                </TouchableOpacity>
+        ) : (
+          <BottomSheetFlatList
+            data={organizeComments(comments)}
+            renderItem={renderComment}
+            keyExtractor={(item, index) => item.id || `view-more-${index}`}
+            contentContainerStyle={styles.commentsList}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <View style={styles.emptyComments}>
+                <Ionicons name="chatbubble-outline" size={48} color="#666" />
+                <Text style={styles.emptyCommentsText}>No comments yet</Text>
               </View>
-            )}
-            <View style={styles.commentInputRow}>
-              <TextInput 
-                style={styles.commentInput} 
-                placeholder="Add a comment..." 
-                placeholderTextColor="#666" 
-                value={commentText} 
-                onChangeText={setCommentText} 
-                multiline 
-              />
-              <TouchableOpacity onPress={handleAddComment} disabled={!commentText.trim() || postingComment} style={styles.sendButton}>
-                {postingComment ? (
-                  <ActivityIndicator size="small" color="#6366f1" />
-                ) : (
-                  <Ionicons name="send" size={24} color={commentText.trim() ? '#6366f1' : '#666'} />
-                )}
+            }
+          />
+        )}
+        
+        <View style={styles.commentInputContainer}>
+          {replyTo && (
+            <View style={styles.replyBanner}>
+              <Text style={styles.replyBannerText}>Replying to {replyTo.profiles?.full_name}</Text>
+              <TouchableOpacity onPress={() => setReplyTo(null)}>
+                <Ionicons name="close-circle" size={20} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
+          )}
+          <View style={styles.commentInputRow}>
+            <BottomSheetTextInput
+              style={styles.commentInput}
+              placeholder="Add a comment..."
+              placeholderTextColor="#666"
+              value={commentText}
+              onChangeText={setCommentText}
+              multiline
+            />
+            <TouchableOpacity onPress={handleAddComment} disabled={!commentText.trim() || postingComment} style={styles.sendButton}>
+              {postingComment ? (
+                <ActivityIndicator size="small" color="#6366f1" />
+              ) : (
+                <Ionicons name="send" size={24} color={commentText.trim() ? '#6366f1' : '#666'} />
+              )}
+            </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
-    </View>
+        </View>
+      </BottomSheet>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   loadingContainer: { flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' },
+  bottomSheetBackground: { backgroundColor: '#1a1a1a' },
+  bottomSheetIndicator: { backgroundColor: '#666', width: 40 },
+  commentsSheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' },
+  loadingComments: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
   header: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12, borderBottomWidth: 0.5, borderBottomColor: 'rgba(255, 255, 255, 0.1)', backgroundColor: '#000', zIndex: 1000 },
   logo: { fontSize: 32, fontWeight: '400', color: '#FFFFFF', letterSpacing: 2, fontFamily: Platform.OS === 'ios' ? 'Snell Roundhand' : 'cursive' },
   headerActions: { flexDirection: 'row', gap: 16 },
@@ -1020,10 +1059,8 @@ const styles = StyleSheet.create({
   editModalSaveDisabled: { color: '#666' },
   editModalContent: { flex: 1, padding: 16 },
   editModalInput: { color: '#FFFFFF', fontSize: 16, lineHeight: 24, textAlignVertical: 'top' },
-  commentsModalContainer: { flex: 1, backgroundColor: '#000' },
-  commentsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' },
   commentsTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
-  commentsList: { padding: 16 },
+  commentsList: { padding: 16, paddingBottom: 100 },
   commentItem: { flexDirection: 'row', marginBottom: 16, gap: 12 },
   replyItem: { marginLeft: 48, marginTop: 8 },
   commentAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
