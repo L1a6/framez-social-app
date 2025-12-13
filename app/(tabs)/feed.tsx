@@ -403,36 +403,39 @@ export default function FeedScreen() {
     return `${diffInWeeks}w`;
   }, []);
 
+  // Only update the changed post, preserve array reference
   const handleLike = async (postId: string) => {
     if (!currentUser) {
       Alert.alert('Login Required', 'Please login to like posts');
       return;
     }
 
-    const post = posts.find((p) => p.id === postId);
-    if (!post) return;
-    const wasLiked = post.is_liked;
-    const newLikeCount = wasLiked ? post.total_likes - 1 : post.total_likes + 1;
-
-    setPosts(prevPosts => prevPosts.map(p => {
-      if (p.id === postId) {
-        return {
-          ...p,
-          is_liked: !wasLiked,
-          total_likes: newLikeCount,
-          first_liker: !wasLiked && newLikeCount === 1 ? (currentUser.user_metadata?.full_name || 'You') : (wasLiked && newLikeCount === 0 ? null : p.first_liker)
-        };
-      }
-      return p;
-    }));
+    setPosts(prevPosts => {
+      const idx = prevPosts.findIndex(p => p.id === postId);
+      if (idx === -1) return prevPosts;
+      const post = prevPosts[idx];
+      const wasLiked = post.is_liked;
+      const newLikeCount = wasLiked ? post.total_likes - 1 : post.total_likes + 1;
+      // Only update the changed post, keep array reference
+      const updated = [...prevPosts];
+      updated[idx] = {
+        ...post,
+        is_liked: !wasLiked,
+        total_likes: newLikeCount,
+        first_liker: !wasLiked && newLikeCount === 1 ? (currentUser.user_metadata?.full_name || 'You') : (wasLiked && newLikeCount === 0 ? null : post.first_liker)
+      };
+      return updated;
+    });
 
     try {
+      const post = posts.find((p) => p.id === postId);
+      const wasLiked = post?.is_liked;
       if (wasLiked) {
         await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', currentUser.id);
         await supabase.from('notification_tracking').delete().eq('actor_id', currentUser.id).eq('entity_id', postId).eq('action_type', 'like');
       } else {
         await supabase.from('likes').insert({ post_id: postId, user_id: currentUser.id });
-        if (post.user_id !== currentUser.id) {
+        if (post && post.user_id !== currentUser.id) {
           await supabase.rpc('create_notification_safe', {
             p_recipient_id: post.user_id,
             p_actor_id: currentUser.id,
@@ -444,12 +447,16 @@ export default function FeedScreen() {
       }
     } catch (error) {
       console.error('Error toggling like:', error);
-      setPosts(prevPosts => prevPosts.map(p => {
-        if (p.id === postId) {
-          return { ...p, is_liked: wasLiked, total_likes: post.total_likes, first_liker: post.first_liker };
-        }
-        return p;
-      }));
+      // Rollback only the changed post
+      setPosts(prevPosts => {
+        const idx = prevPosts.findIndex(p => p.id === postId);
+        if (idx === -1) return prevPosts;
+        const post = prevPosts[idx];
+        const wasLiked = post.is_liked;
+        const updated = [...prevPosts];
+        updated[idx] = { ...post, is_liked: wasLiked, total_likes: post.total_likes, first_liker: post.first_liker };
+        return updated;
+      });
     }
   };
 
@@ -611,13 +618,13 @@ export default function FeedScreen() {
     }
   };
 
+  // Only update the changed post, preserve array reference
   const handleAddComment = async () => {
     if (!currentUser) {
       Alert.alert('Login Required', 'Please login to comment');
       return;
     }
     if (!commentText.trim()) return;
-    
     setPostingComment(true);
     try {
       const { data: newComment, error } = await supabase
@@ -638,11 +645,8 @@ export default function FeedScreen() {
           )
         `)
         .single();
-      
       if (error) throw error;
-      
       setComments(prev => [...prev, newComment]);
-      
       if (selectedPost.user_id !== currentUser.id) {
         await supabase.rpc('create_notification_safe', {
           p_recipient_id: selectedPost.user_id,
@@ -652,16 +656,17 @@ export default function FeedScreen() {
           p_message: replyTo ? 'replied to your comment' : 'commented on your post'
         });
       }
-      
       setCommentText('');
       setReplyTo(null);
-      
-      setPosts(prevPosts => prevPosts.map(p => 
-        p.id === selectedPost.id 
-          ? { ...p, comments_count: (p.comments_count || 0) + 1 }
-          : p
-      ));
-      
+      // Only update the changed post, keep array reference
+      setPosts(prevPosts => {
+        const idx = prevPosts.findIndex(p => p.id === selectedPost.id);
+        if (idx === -1) return prevPosts;
+        const post = prevPosts[idx];
+        const updated = [...prevPosts];
+        updated[idx] = { ...post, comments_count: (post.comments_count || 0) + 1 };
+        return updated;
+      });
     } catch (error) {
       console.error('Error adding comment:', error);
       Alert.alert('Error', 'Failed to add comment');
@@ -825,6 +830,7 @@ export default function FeedScreen() {
         contentContainerStyle={styles.listContent} 
         onScroll={handleScroll} 
         scrollEventThrottle={16}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         ListFooterComponent={
           !hasMorePosts && posts.length > 0 ? (
             <View style={styles.endOfFeed}>
