@@ -196,12 +196,14 @@ export default function FeedScreen() {
     setupRealtimeSubscription();
   }, []);
 
+  // Only fetch posts on mount or pull-to-refresh, not after every currentUser change
   useEffect(() => {
     if (currentUser) {
       fetchPosts();
       fetchUnreadCount();
     }
-  }, [currentUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Remove currentUser from deps to avoid refetching on every change
 
   const setupRealtimeSubscription = () => {
     const channel = supabase
@@ -285,7 +287,6 @@ export default function FeedScreen() {
 
   const fetchPosts = async () => {
     if (!currentUser) return;
-    
     try {
       const { data, error } = await supabase
         .from('posts')
@@ -305,30 +306,25 @@ export default function FeedScreen() {
       setHasMorePosts(data.length >= 50);
 
       const postIds = data.map(p => p.id);
-      
       const { data: likesData } = await supabase
         .from('likes')
         .select('post_id, user_id, profiles:user_id(full_name)')
         .in('post_id', postIds)
         .order('created_at', { ascending: true });
-
       const { data: myLikes } = await supabase
         .from('likes')
         .select('post_id')
         .in('post_id', postIds)
         .eq('user_id', currentUser.id);
-
       const myLikesSet = new Set(myLikes?.map(l => l.post_id) || []);
       const likesByPost = (likesData || []).reduce((acc: any, like: any) => {
         if (!acc[like.post_id]) acc[like.post_id] = [];
         acc[like.post_id].push(like);
         return acc;
       }, {});
-
       const postsWithData = data.map((post) => {
         const postLikes = likesByPost[post.id] || [];
         const firstLike = postLikes[0];
-        
         return {
           ...post,
           is_liked: myLikesSet.has(post.id),
@@ -337,38 +333,25 @@ export default function FeedScreen() {
           media: getMediaUrls(post),
         };
       });
-
       // Feed Algorithm: Score posts based on engagement + recency + following
       const scoredPosts = postsWithData.map(post => {
         const ageInHours = (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60);
         const isFromFollowing = following.has(post.user_id);
         const isOwnPost = post.user_id === currentUser.id;
-        
         // Engagement score (likes + comments weighted)
         const engagementScore = (post.total_likes * 1) + ((post.comments_count || 0) * 2);
-        
         // Recency decay - newer posts score higher
         const recencyScore = Math.max(0, 100 - (ageInHours * 2));
-        
         // Boost posts from people you follow
         const followingBoost = isFromFollowing ? 50 : 0;
-        
         // Slight boost for own posts so you see them
         const ownPostBoost = isOwnPost ? 30 : 0;
-        
         // Final score
         const score = engagementScore + recencyScore + followingBoost + ownPostBoost;
-        
         return { ...post, _feedScore: score };
       });
-      
-      // Sort by score (highest first), but keep some randomness for variety
-      scoredPosts.sort((a, b) => {
-        // Add small random factor to prevent exact same order every time
-        const randomFactor = (Math.random() - 0.5) * 10;
-        return (b._feedScore + randomFactor) - (a._feedScore + randomFactor);
-      });
-
+      // Sort by score (highest first), stable (no random factor)
+      scoredPosts.sort((a, b) => b._feedScore - a._feedScore);
       setPosts(scoredPosts);
     } catch (error) {
       console.error('Error fetching posts:', error);

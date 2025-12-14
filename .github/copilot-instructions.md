@@ -1,5 +1,4 @@
-# Framez Social App - AI Coding Instructions
-
+# Framez Social App 
 ## Project Overview
 Instagram-style social media app built with **Expo Router v6**, **React Native 0.81**, **Supabase**, and **NativeWind/TailwindCSS**. Dark theme (#000000 background) throughout.
 
